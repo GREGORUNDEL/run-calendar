@@ -185,6 +185,11 @@ function plannedDays(today) {
   return out;
 }
 
+function totalText() {
+  const total = state.runs.reduce((sum, r) => sum + (r.distance || 0), 0);
+  return state.runs.length ? `${Math.round(total / 1000).toLocaleString('ru-RU')} км` : '';
+}
+
 const barHeight = () => document.querySelector('.bar').offsetHeight;
 
 function scrollToMonth(key, smooth) {
@@ -204,8 +209,7 @@ function render({ scrollTo } = {}) {
   feed.appendChild(Object.assign(document.createElement('footer'), { className: 'feed-end', textContent: updatedText(state.updated) }));
   if (sheet.key) markSelected(sheet.key);
   setStatus('');
-  const total = state.runs.reduce((sum, r) => sum + (r.distance || 0), 0);
-  $('total').textContent = state.runs.length ? `${Math.round(total / 1000).toLocaleString('ru-RU')} км` : '';
+  $('total').textContent = totalText();
   state.fresh.clear();
   scrollToMonth(scrollTo || monthKey(t.getFullYear(), t.getMonth()), false);
 }
@@ -390,7 +394,11 @@ function closeRunSheet() {
   sheet.key = null;
   setSheetHeight(0);
   markSelected(null);
-  setTimeout(() => { if (!sheet.open) el.hidden = true; }, 330);
+  setTimeout(() => {
+    if (sheet.open) return;
+    el.hidden = true;
+    document.body.style.paddingBottom = '';
+  }, 330);
 }
 
 function markSelected(key) {
@@ -405,7 +413,9 @@ function openDay(key) {
   $('sheetTitle').textContent = dayTitle(key);
   const body = $('sheetBody');
   body.innerHTML = runs.map(runHTML).join('');
+  body.classList.toggle('multi', runs.length > 1);
   body.scrollTop = 0;
+  document.body.style.paddingBottom = `${window.innerHeight}px`; // room to lift any week under the header
   window.scrollTo({ top: gridScrollTop(key), behavior: 'smooth' });
   showSheet();
   body.querySelectorAll('.map').forEach((el) => drawMap(el, runs[Number(el.dataset.run)]));
@@ -463,16 +473,14 @@ function setStatus(text, kind) {
   const el = $('status');
   if (!text) {
     el.className = 'status idle';
-    el.textContent = state.runs.length ? '' : 'Пробежек пока нет. Нажми кнопку справа, чтобы забрать их из Garmin.';
+    el.textContent = '';
     return;
   }
   el.className = 'status' + (kind ? ' ' + kind : '');
   el.innerHTML = text;
 }
 function setBusy(busy) {
-  const b = $('sync');
-  b.classList.toggle('busy', busy);
-  b.disabled = busy;
+  $('syncSpin').hidden = !busy;
 }
 
 function askToken() {
@@ -511,16 +519,38 @@ function gh(path, token, init = {}) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-async function sync() {
-  let token = store.get(TOKEN_KEY);
-  if (!token) {
-    token = await askToken();
+/* Sync runs automatically when the app is opened (at most every 10 minutes). */
+const AUTO_SYNC_MIN_GAP = 10 * 60 * 1000;
+let syncing = false;
+let lastAttempt = 0;
+
+function offerConnect(message) {
+  setStatus(`${message} <a href="#" id="connectLink">Подключить синхронизацию</a>`, message ? 'error' : '');
+  $('connectLink').addEventListener('click', async (e) => {
+    e.preventDefault();
+    const token = await askToken();
     if (!token) return;
     store.set(TOKEN_KEY, token);
-  }
+    setStatus('');
+    sync();
+  });
+}
 
+function maybeAutoSync() {
+  if (syncing || document.visibilityState !== 'visible') return;
+  const token = store.get(TOKEN_KEY);
+  if (!token) { offerConnect(''); return; }
+  const last = Math.max(lastAttempt, state.updated ? Date.parse(state.updated) : 0);
+  if (Date.now() - last < AUTO_SYNC_MIN_GAP) return;
+  sync();
+}
+
+async function sync() {
+  const token = store.get(TOKEN_KEY);
+  if (!token || syncing) return;
+  syncing = true;
+  lastAttempt = Date.now();
   setBusy(true);
-  setStatus('Запускаю синхронизацию…');
   const before = new Set(state.runs.map((r) => r.id));
   const beforeUpdated = state.updated;
   const startedAt = Date.now() - 20000;
@@ -532,11 +562,11 @@ async function sync() {
     });
     if (res.status === 401 || res.status === 403 || res.status === 404) {
       store.del(TOKEN_KEY);
-      throw new Error('GitHub не принял токен. Нажми синхронизацию ещё раз и вставь новый токен.');
+      offerConnect('GitHub не принял токен.');
+      return;
     }
-    if (!res.ok) throw new Error(`GitHub ответил ошибкой ${res.status}. Попробуй ещё раз через минуту.`);
+    if (!res.ok) throw new Error(`Синхронизация не запустилась: GitHub ответил ошибкой ${res.status}.`);
 
-    setStatus('Забираю пробежки из Garmin…');
     let run = null;
     const deadline = Date.now() + 6 * 60 * 1000;
     while (Date.now() < deadline) {
@@ -545,15 +575,11 @@ async function sync() {
       if (!r.ok) continue;
       const list = (await r.json()).workflow_runs || [];
       run = list.find((x) => Date.parse(x.created_at) >= startedAt) || null;
-      if (!run) continue;
-      if (run.status === 'completed') break;
-      setStatus(run.status === 'queued' ? 'Синхронизация в очереди…' : 'Забираю пробежки из Garmin и обновляю сайт…');
+      if (run && run.status === 'completed') break;
     }
-    if (!run || run.status !== 'completed') {
-      throw new Error('Синхронизация идёт дольше обычного. Обнови страницу через пару минут.');
-    }
+    if (!run || run.status !== 'completed') return; // still running; next open will pick it up
     if (run.conclusion !== 'success') {
-      throw new Error(`Синхронизация не удалась. <a href="${run.html_url}" target="_blank" rel="noopener">Открыть подробности на GitHub</a>`);
+      throw new Error(`Синхронизация не удалась. <a href="${run.html_url}" target="_blank" rel="noopener">Подробности на GitHub</a>`);
     }
 
     // The new site version can take a few seconds to reach the CDN.
@@ -563,23 +589,24 @@ async function sync() {
       await sleep(4000);
     }
     const added = state.runs.filter((r) => !before.has(r.id));
+    if (!added.length) {
+      $('total').textContent = totalText();
+      return;
+    }
     added.forEach((r) => state.fresh.add(r.id));
-    const newest = added.reduce((a, b) => (!a || b.start > a.start ? b : a), null);
-    render({ scrollTo: newest ? newest.date.slice(0, 7) : null });
-    setStatus(added.length
-      ? `Готово: ${added.length} ${plural(added.length, 'новая пробежка', 'новые пробежки', 'новых пробежек')}.`
-      : 'Готово: новых пробежек нет.');
-    setTimeout(() => setStatus(''), 6000);
+    const openKey = sheet.open ? sheet.key : null;
+    render({ scrollTo: openKey ? null : added.reduce((a, b) => (b.start > a.start ? b : a)).date.slice(0, 7) });
+    if (openKey) openDay(openKey);
   } catch (err) {
     setStatus(err.message || 'Синхронизация не удалась.', 'error');
   } finally {
+    syncing = false;
     setBusy(false);
   }
 }
 
 /* ------------------------------------------------------------ init */
 async function init() {
-  $('sync').addEventListener('click', sync);
   $('sheetDone').addEventListener('click', closeRunSheet);
   $('mapDone').addEventListener('click', closeFullMap);
   document.addEventListener('keydown', (e) => {
@@ -596,6 +623,8 @@ async function init() {
     return;
   }
   render();
+  maybeAutoSync();
+  document.addEventListener('visibilitychange', maybeAutoSync);
 }
 
 init();

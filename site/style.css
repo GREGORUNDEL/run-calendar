@@ -53,9 +53,19 @@ button:focus-visible, input:focus-visible {
   font-weight: 700;
   letter-spacing: 0.01em;
 }
+.spin {
+  flex: none;
+  width: 16px; height: 16px;
+  margin-left: auto;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 159, 10, 0.25);
+  border-top-color: var(--orange);
+  animation: spin .9s linear infinite;
+}
+.spin[hidden] { display: none; }
 .total {
   flex: 1;
-  padding: 0 12px;
+  padding: 0 6px 0 10px;
   text-align: right;
   font-family: var(--rounded);
   font-size: 22px;
@@ -254,12 +264,15 @@ button:focus-visible, input:focus-visible {
 .drag-zone { padding: 6px 16px 0; flex: none; cursor: grab; }
 .sheet-body {
   flex: 1;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  -webkit-overflow-scrolling: touch;
-  padding: 0 16px calc(env(safe-area-inset-bottom) + 24px);
-  touch-action: pan-y;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0 16px calc(env(safe-area-inset-bottom) + 12px);
 }
+/* several runs on one day: let the list scroll */
+.sheet-body.multi { overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y; display: block; }
+.sheet-body.multi .map { flex: none; height: 240px; }
 .grabber {
   width: 36px; height: 5px;
   border-radius: 3px;
@@ -293,17 +306,22 @@ button:focus-visible, input:focus-visible {
 
 .run {
   background: var(--bg3);
-  border-radius: 12px;
-  padding: 14px;
+  border-radius: 22px;
+  padding: 16px;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 .run + .run { margin-top: 12px; }
 .run h3 { margin: 0; font-size: 17px; line-height: 22px; font-weight: 600; }
-.run .when { margin: 2px 0 14px; font-size: 15px; color: var(--label2); }
+.run .when { margin: 2px 0 12px; font-size: 15px; color: var(--label2); }
 .figures {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 14px 8px;
+  gap: 10px 8px;
   margin: 0 0 14px;
+  flex: none;
 }
 .figures div { min-width: 0; }
 .figures dt { font-size: 13px; color: var(--label2); }
@@ -318,8 +336,11 @@ button:focus-visible, input:focus-visible {
 .figures .accent dd { color: var(--orange); }
 .map {
   position: relative;
-  height: 320px;
-  border-radius: 10px;
+  flex: 1;
+  min-height: 140px;
+  border-radius: 16px;
+  isolation: isolate;
+  -webkit-mask-image: -webkit-radial-gradient(white, black);
   overflow: hidden;
   background: #f2efe9;
 }
