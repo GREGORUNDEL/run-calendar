@@ -1,0 +1,24 @@
+name: Import runs
+on:
+  push:
+    branches: [import-mifitness]
+permissions:
+  contents: write
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: cp import/mifitness.json /tmp/in.json
+      - uses: actions/checkout@v5
+        with:
+          ref: main
+      - name: Import
+        run: python3 scripts/import_runs.py /tmp/in.json
+      - name: Save to main
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add site/data
+          git commit -m "Import old runs from Mi Fitness"
+          git push origin HEAD:main
