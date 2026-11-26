@@ -181,6 +181,8 @@ function render({ scrollTo } = {}) {
   feed.appendChild(Object.assign(document.createElement('div'), { className: 'feed-end' }));
   if (sheet.key) markSelected(sheet.key);
   setStatus('');
+  const total = state.runs.reduce((sum, r) => sum + (r.distance || 0), 0);
+  $('total').textContent = state.runs.length ? `${Math.round(total / 1000).toLocaleString('ru-RU')} км` : '';
   state.fresh.clear();
   scrollToMonth(scrollTo || monthKey(t.getFullYear(), t.getMonth()), false);
 }
@@ -342,7 +344,7 @@ function gridScrollTop(key) {
 
 function sheetHeight() {
   const rows = visibleRows(sheet.key);
-  const used = barHeight() + 6 + (rows ? rows.height : 180) + 10;
+  const used = barHeight() + 6 + (rows ? rows.height : 180) + 3;
   return Math.max(300, window.innerHeight - used);
 }
 
@@ -391,12 +393,6 @@ function initSheetDrag() {
   const body = $('sheetBody');
   let drag = null;
 
-  // Calendar stays put while the sheet is open (taps still work).
-  const blockOutside = (e) => {
-    if (sheet.open && $('mapView').hidden && !e.target.closest('#runSheet')) e.preventDefault();
-  };
-  document.addEventListener('touchmove', blockOutside, { passive: false });
-  document.addEventListener('wheel', blockOutside, { passive: false });
 
   el.addEventListener('touchstart', (e) => {
     if (e.touches.length !== 1) { drag = null; return; }
