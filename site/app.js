@@ -108,7 +108,7 @@ function monthRange() {
   return list;
 }
 
-function renderMonth(year, month, todayIso) {
+function renderMonth(year, month, todayIso, planned) {
   const section = document.createElement('section');
   section.className = 'month';
   section.id = `m-${monthKey(year, month)}`;
@@ -134,6 +134,10 @@ function renderMonth(year, month, todayIso) {
 
     if (!runs.length) {
       cell.innerHTML = `<span class="num">${d}</span>`;
+      if (planned.has(key)) {
+        cell.classList.add('planned');
+        cell.title = 'Запланированная пробежка';
+      }
     } else {
       const total = runs.reduce((s, r) => s + (r.distance || 0), 0);
       count += runs.length;
@@ -164,6 +168,23 @@ function renderMonth(year, month, todayIso) {
   return section;
 }
 
+/* Plan: 2 days of running, 1 day of rest. Continues from the actual recent runs,
+   so the highlighted days shift on their own if a run is moved or skipped. */
+const PLAN_RUN_DAYS = 2;
+function plannedDays(today) {
+  const key = (dt) => iso(dt.getFullYear(), dt.getMonth(), dt.getDate());
+  const addDays = (dt, n) => new Date(dt.getFullYear(), dt.getMonth(), dt.getDate() + n);
+  let day = state.byDate.has(key(today)) ? addDays(today, 1) : new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  let streak = 0;
+  for (let back = addDays(day, -1); state.byDate.has(key(back)); back = addDays(back, -1)) streak++;
+  const end = new Date(today.getFullYear(), today.getMonth() + 2, 1);
+  const out = new Set();
+  for (; day < end; day = addDays(day, 1)) {
+    if (streak < PLAN_RUN_DAYS) { out.add(key(day)); streak++; } else streak = 0;
+  }
+  return out;
+}
+
 const barHeight = () => document.querySelector('.bar').offsetHeight;
 
 function scrollToMonth(key, smooth) {
@@ -178,7 +199,8 @@ function render({ scrollTo } = {}) {
   const todayIso = iso(t.getFullYear(), t.getMonth(), t.getDate());
   const feed = $('feed');
   feed.innerHTML = '';
-  for (const [y, m] of monthRange()) feed.appendChild(renderMonth(y, m, todayIso));
+  const planned = plannedDays(t);
+  for (const [y, m] of monthRange()) feed.appendChild(renderMonth(y, m, todayIso, planned));
   feed.appendChild(Object.assign(document.createElement('footer'), { className: 'feed-end', textContent: updatedText(state.updated) }));
   if (sheet.key) markSelected(sheet.key);
   setStatus('');
