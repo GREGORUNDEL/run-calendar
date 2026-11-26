@@ -78,7 +78,7 @@ async function loadData() {
 }
 
 /* ------------------------------------------------------------ render */
-function stickerSVG(meters) {
+function stickerSVG(meters, day) {
   const v = kmTotal(meters);
   const size = v.length >= 5 ? 27 : v.length === 4 ? 32 : 36;
   return `<svg viewBox="0 0 100 100" aria-hidden="true">
@@ -88,6 +88,7 @@ function stickerSVG(meters) {
     </g>
     <text x="50" y="${52 + size * 0.36}" style="font-size:${size}px">${v}</text>
     <text class="unit" x="50" y="84">км</text>
+    <text class="idx" x="24" y="31">${day}</text>
   </svg>`;
 }
 
@@ -142,7 +143,7 @@ function renderMonth(year, month, todayIso) {
       cell.setAttribute('aria-label', `${d} ${MONTHS_GEN[month]}: ${runs.length} ${plural(runs.length, 'пробежка', 'пробежки', 'пробежек')}, ${km2(total)} км`);
       const sticker = document.createElement('span');
       sticker.className = 'sticker';
-      sticker.innerHTML = stickerSVG(total);
+      sticker.innerHTML = stickerSVG(total, d);
       if (runs.some((r) => state.fresh.has(r.id))) sticker.classList.add('pressed');
       cell.appendChild(sticker);
       if (runs.length > 1) cell.insertAdjacentHTML('beforeend', `<span class="count">${runs.length}</span>`);
@@ -261,17 +262,25 @@ function closeSheet(wrap) {
   if (lastFocus) lastFocus.focus({ preventScroll: true });
 }
 
-/* Run sheet with iOS-style detents: medium (month stays visible above) and large. */
-const sheet = { key: null, detent: null };
-const topInset = () => parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--top')) || 20;
+/* Run sheet: opens under the month grid, which scrolls up right below the header.
+   While it is open the calendar does not scroll; swipes go to the sheet. */
+const sheet = { key: null, open: false };
 
-function detentHeight(detent) {
-  const vh = window.innerHeight;
-  const large = vh - topInset() - 10;
-  if (detent === 'large') return large;
-  const month = sheet.key && $(`m-${sheet.key.slice(0, 7)}`);
-  const monthBottom = barHeight() + (month ? month.offsetHeight : 360) + 4;
-  return Math.min(large, Math.max(300, vh - monthBottom));
+function monthGrid(key) {
+  const month = key && $(`m-${key.slice(0, 7)}`);
+  return month ? month.querySelector('.grid') : null;
+}
+
+function gridScrollTop(key) {
+  const grid = monthGrid(key);
+  if (!grid) return window.scrollY;
+  return grid.getBoundingClientRect().top + window.scrollY - barHeight() - 6;
+}
+
+function sheetHeight() {
+  const grid = monthGrid(sheet.key);
+  const used = barHeight() + 6 + (grid ? grid.offsetHeight : 360) + 8;
+  return Math.max(300, window.innerHeight - used);
 }
 
 function setSheetHeight(h, animate = true) {
@@ -280,19 +289,20 @@ function setSheetHeight(h, animate = true) {
   el.style.height = `${Math.max(0, h)}px`;
 }
 
-function setDetent(detent) {
+function showSheet() {
   const el = $('runSheet');
-  if (!detent) {
-    sheet.detent = null;
-    sheet.key = null;
-    setSheetHeight(0);
-    markSelected(null);
-    setTimeout(() => { if (!sheet.detent) el.hidden = true; }, 330);
-    return;
-  }
   el.hidden = false;
-  sheet.detent = detent;
-  requestAnimationFrame(() => setSheetHeight(detentHeight(detent)));
+  sheet.open = true;
+  requestAnimationFrame(() => setSheetHeight(sheetHeight()));
+}
+
+function closeRunSheet() {
+  const el = $('runSheet');
+  sheet.open = false;
+  sheet.key = null;
+  setSheetHeight(0);
+  markSelected(null);
+  setTimeout(() => { if (!sheet.open) el.hidden = true; }, 330);
 }
 
 function markSelected(key) {
@@ -308,8 +318,8 @@ function openDay(key) {
   const body = $('sheetBody');
   body.innerHTML = runs.map(runHTML).join('');
   body.scrollTop = 0;
-  scrollToMonth(key.slice(0, 7), true);
-  setDetent(sheet.detent === 'large' ? 'large' : 'medium');
+  window.scrollTo({ top: gridScrollTop(key), behavior: 'smooth' });
+  showSheet();
   body.querySelectorAll('.map').forEach((el) => drawMap(el, runs[Number(el.dataset.run)]));
 }
 
@@ -318,15 +328,16 @@ function initSheetDrag() {
   const body = $('sheetBody');
   let drag = null;
 
+  // Calendar stays put while the sheet is open (taps still work).
+  const blockOutside = (e) => {
+    if (sheet.open && !e.target.closest('#runSheet')) e.preventDefault();
+  };
+  document.addEventListener('touchmove', blockOutside, { passive: false });
+  document.addEventListener('wheel', blockOutside, { passive: false });
+
   el.addEventListener('touchstart', (e) => {
-    if (e.touches.length !== 1 || e.target.closest('.map')) return;
-    drag = {
-      y0: e.touches[0].clientY,
-      h0: el.offsetHeight,
-      fromHandle: !!e.target.closest('#dragZone'),
-      active: false,
-      last: [],
-    };
+    if (e.touches.length !== 1 || e.target.closest('.map')) { drag = null; return; }
+    drag = { y0: e.touches[0].clientY, h0: el.offsetHeight, active: false, last: [] };
   }, { passive: true });
 
   el.addEventListener('touchmove', (e) => {
@@ -335,44 +346,34 @@ function initSheetDrag() {
     const dy = y - drag.y0;
     if (!drag.active) {
       if (Math.abs(dy) < 6) return;
-      const pullDown = dy > 0 && body.scrollTop <= 0;
-      const pullUp = dy < 0 && sheet.detent === 'medium';
-      if (drag.fromHandle || pullDown || pullUp) {
+      if (dy > 0 && body.scrollTop <= 0) {
         drag.active = true;
         drag.y0 = y;
       } else {
-        drag = null;
+        drag = null; // let the content scroll
         return;
       }
     }
     e.preventDefault();
-    const h = Math.min(detentHeight('large'), drag.h0 - (y - drag.y0));
-    setSheetHeight(h, false);
+    setSheetHeight(Math.min(drag.h0, drag.h0 - (y - drag.y0)), false);
     drag.last.push([performance.now(), y]);
     if (drag.last.length > 5) drag.last.shift();
   }, { passive: false });
 
-  el.addEventListener('touchend', () => {
+  const end = () => {
     if (!drag || !drag.active) { drag = null; return; }
-    const h = el.offsetHeight;
+    const pulled = drag.h0 - el.offsetHeight;
     const [t0, y0] = drag.last[0] || [0, 0];
     const [t1, y1] = drag.last[drag.last.length - 1] || [1, 0];
-    const v = (y1 - y0) / Math.max(1, t1 - t0); // px per ms, >0 means down
-    const medium = detentHeight('medium');
-    const large = detentHeight('large');
-    let next;
-    if (v > 0.5) next = drag.h0 > medium + 40 ? 'medium' : null;
-    else if (v < -0.5) next = 'large';
-    else {
-      const options = [[0, null], [medium, 'medium'], [large, 'large']];
-      next = options.reduce((a, b) => (Math.abs(b[0] - h) < Math.abs(a[0] - h) ? b : a))[1];
-    }
+    const v = (y1 - y0) / Math.max(1, t1 - t0);
     drag = null;
-    if (next) setDetent(next);
-    else setDetent(null);
-  });
+    if (pulled > 90 || v > 0.45) closeRunSheet();
+    else setSheetHeight(sheetHeight());
+  };
+  el.addEventListener('touchend', end);
+  el.addEventListener('touchcancel', end);
 
-  window.addEventListener('resize', () => { if (sheet.detent) setSheetHeight(detentHeight(sheet.detent), false); });
+  window.addEventListener('resize', () => { if (sheet.open) setSheetHeight(sheetHeight(), false); });
 }
 
 /* ------------------------------------------------------------ sync */
@@ -380,9 +381,7 @@ function setStatus(text, kind) {
   const el = $('status');
   if (!text) {
     el.className = 'status idle';
-    el.textContent = state.runs.length
-      ? updatedText(state.updated)
-      : 'Пробежек пока нет. Нажми кнопку справа, чтобы забрать их из Garmin.';
+    el.textContent = state.runs.length ? '' : 'Пробежек пока нет. Нажми кнопку справа, чтобы забрать их из Garmin.';
     return;
   }
   el.className = 'status' + (kind ? ' ' + kind : '');
@@ -499,9 +498,9 @@ async function sync() {
 /* ------------------------------------------------------------ init */
 async function init() {
   $('sync').addEventListener('click', sync);
-  $('sheetDone').addEventListener('click', () => setDetent(null));
+  $('sheetDone').addEventListener('click', closeRunSheet);
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && sheet.detent) setDetent(null);
+    if (e.key === 'Escape' && sheet.open) closeRunSheet();
   });
   initSheetDrag();
   try {
