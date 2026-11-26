@@ -102,7 +102,7 @@ function monthRange() {
     if (d < first) first = d;
   }
   const list = [];
-  for (let d = first; d <= new Date(y, m + 12, 1); d = new Date(d.getFullYear(), d.getMonth() + 1, 1)) {
+  for (let d = first; d <= new Date(y, m + 1, 1); d = new Date(d.getFullYear(), d.getMonth() + 1, 1)) {
     list.push([d.getFullYear(), d.getMonth()]);
   }
   return list;
@@ -114,6 +114,7 @@ function renderMonth(year, month, todayIso) {
   section.id = `m-${monthKey(year, month)}`;
   const now = new Date();
   if (now.getFullYear() === year && now.getMonth() === month) section.classList.add('current');
+  if (new Date(year, month, 1) > now) section.classList.add('upcoming');
 
   const grid = document.createElement('div');
   grid.className = 'grid';
@@ -178,7 +179,7 @@ function render({ scrollTo } = {}) {
   const feed = $('feed');
   feed.innerHTML = '';
   for (const [y, m] of monthRange()) feed.appendChild(renderMonth(y, m, todayIso));
-  feed.appendChild(Object.assign(document.createElement('div'), { className: 'feed-end' }));
+  feed.appendChild(Object.assign(document.createElement('footer'), { className: 'feed-end', textContent: updatedText(state.updated) }));
   if (sheet.key) markSelected(sheet.key);
   setStatus('');
   const total = state.runs.reduce((sum, r) => sum + (r.distance || 0), 0);

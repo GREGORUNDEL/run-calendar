@@ -197,7 +197,17 @@ button:focus-visible, input:focus-visible {
   100% { scale: 1; }
 }
 
-.feed-end { height: 40vh; }
+.month.upcoming {
+  -webkit-mask-image: linear-gradient(to bottom, #000 0, #000 35%, transparent 92%);
+  mask-image: linear-gradient(to bottom, #000 0, #000 35%, transparent 92%);
+  pointer-events: none;
+}
+.feed-end {
+  padding: 8px 16px calc(env(safe-area-inset-bottom) + 36px);
+  text-align: center;
+  font-size: 13px;
+  color: var(--label3);
+}
 
 /* ---------- sheets */
 .sheet-wrap { position: fixed; inset: 0; z-index: 10; }
