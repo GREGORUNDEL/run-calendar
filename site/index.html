@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>Пробежки</title>
 <meta name="theme-color" content="#000000">
 <meta name="color-scheme" content="dark">
@@ -19,8 +19,10 @@
 <header class="bar">
   <div class="bar-row">
     <h1>Пробежки</h1>
-    <span class="spin" id="syncSpin" hidden aria-label="Синхронизация"></span>
-    <span class="total" id="total" title="Всего пробежано"></span>
+    <div class="bar-right">
+      <span class="spin" id="syncSpin" hidden aria-label="Синхронизация"></span>
+      <span class="total" id="total" title="Всего пробежано"></span>
+    </div>
   </div>
   <p class="status" id="status" role="status"></p>
   <div class="weekdays" aria-hidden="true"><span>пн</span><span>вт</span><span>ср</span><span>чт</span><span>пт</span><span>сб</span><span>вс</span></div>

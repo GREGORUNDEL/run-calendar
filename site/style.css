@@ -19,7 +19,8 @@
 }
 
 * { box-sizing: border-box; }
-html, body { margin: 0; background: var(--bg); }
+html, body { margin: 0; background: var(--bg); touch-action: pan-x pan-y; }
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 body { min-height: 100vh; -webkit-font-smoothing: antialiased; }
 button { font: inherit; color: inherit; -webkit-tap-highlight-color: transparent; }
 button:focus-visible, input:focus-visible {
@@ -53,10 +54,15 @@ button:focus-visible, input:focus-visible {
   font-weight: 700;
   letter-spacing: 0.01em;
 }
+.bar-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
 .spin {
   flex: none;
-  width: 16px; height: 16px;
-  margin-left: auto;
+  width: 18px; height: 18px;
   border-radius: 50%;
   border: 2px solid rgba(255, 159, 10, 0.25);
   border-top-color: var(--orange);
@@ -64,9 +70,8 @@ button:focus-visible, input:focus-visible {
 }
 .spin[hidden] { display: none; }
 .total {
-  flex: 1;
-  padding: 0 6px 0 10px;
-  text-align: right;
+  padding-right: 6px;
+  line-height: 1;
   font-family: var(--rounded);
   font-size: 22px;
   font-weight: 700;
@@ -219,9 +224,11 @@ button:focus-visible, input:focus-visible {
   100% { scale: 1; }
 }
 
-.month.upcoming {
-  -webkit-mask-image: linear-gradient(to bottom, #000 0, #000 35%, transparent 92%);
-  mask-image: linear-gradient(to bottom, #000 0, #000 35%, transparent 92%);
+.month.fading {
+  max-height: min(62vw, 340px);
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(to bottom, rgba(0,0,0,.7) 0, transparent 100%);
+  mask-image: linear-gradient(to bottom, rgba(0,0,0,.7) 0, transparent 100%);
   pointer-events: none;
 }
 .feed-end {

@@ -102,7 +102,7 @@ function monthRange() {
     if (d < first) first = d;
   }
   const list = [];
-  for (let d = first; d <= new Date(y, m + 1, 1); d = new Date(d.getFullYear(), d.getMonth() + 1, 1)) {
+  for (let d = first; d <= new Date(y, m + 2, 1); d = new Date(d.getFullYear(), d.getMonth() + 1, 1)) {
     list.push([d.getFullYear(), d.getMonth()]);
   }
   return list;
@@ -114,7 +114,7 @@ function renderMonth(year, month, todayIso, planned) {
   section.id = `m-${monthKey(year, month)}`;
   const now = new Date();
   if (now.getFullYear() === year && now.getMonth() === month) section.classList.add('current');
-  if (new Date(year, month, 1) > now) section.classList.add('upcoming');
+  if (new Date(year, month, 1) > new Date(now.getFullYear(), now.getMonth() + 1, 1)) section.classList.add('fading');
 
   const grid = document.createElement('div');
   grid.className = 'grid';
@@ -177,7 +177,7 @@ function plannedDays(today) {
   let day = state.byDate.has(key(today)) ? addDays(today, 1) : new Date(today.getFullYear(), today.getMonth(), today.getDate());
   let streak = 0;
   for (let back = addDays(day, -1); state.byDate.has(key(back)); back = addDays(back, -1)) streak++;
-  const end = new Date(today.getFullYear(), today.getMonth() + 2, 1);
+  const end = new Date(today.getFullYear(), today.getMonth() + 3, 1);
   const out = new Set();
   for (; day < end; day = addDays(day, 1)) {
     if (streak < PLAN_RUN_DAYS) { out.add(key(day)); streak++; } else streak = 0;
@@ -607,6 +607,9 @@ async function sync() {
 
 /* ------------------------------------------------------------ init */
 async function init() {
+  // No pinch zoom (iOS ignores user-scalable=no in Safari).
+  ['gesturestart', 'gesturechange'].forEach((t) => document.addEventListener(t, (e) => e.preventDefault(), { passive: false }));
+  document.addEventListener('dblclick', (e) => e.preventDefault(), { passive: false });
   $('sheetDone').addEventListener('click', closeRunSheet);
   $('mapDone').addEventListener('click', closeFullMap);
   document.addEventListener('keydown', (e) => {
