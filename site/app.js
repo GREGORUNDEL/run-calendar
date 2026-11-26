@@ -508,7 +508,7 @@ const MONTHS_SHORT = ['янв', 'фев', 'мар', 'апр', 'май', 'июн'
 function renderYears() {
   const kmByDay = new Map();
   for (const r of state.runs) kmByDay.set(r.date, (kmByDay.get(r.date) || 0) + (r.distance || 0));
-  const years = [...new Set(state.runs.map((r) => Number(r.date.slice(0, 4))))].sort((a, b) => b - a);
+  const years = [...new Set(state.runs.map((r) => Number(r.date.slice(0, 4))))].sort((a, b) => a - b); // oldest on top, like the month feed
   const t = new Date();
   const todayIso = iso(t.getFullYear(), t.getMonth(), t.getDate());
   return years.map((y) => {
@@ -537,9 +537,10 @@ function renderYears() {
 function openYears() {
   if (!state.runs.length) return;
   haptic();
-  $('yearBody').innerHTML = renderYears();
-  $('yearBody').scrollTop = 0;
+  const body = $('yearBody');
+  body.innerHTML = renderYears();
   $('yearView').hidden = false;
+  body.scrollTop = body.scrollHeight; // start at the current year
 }
 function closeYears() {
   haptic();
