@@ -259,7 +259,7 @@ def load_runs() -> dict[int, dict]:
     runs = {int(r["id"]): r for r in data.get("runs", [])}
     if data.get("trackVersion") != TRACK_VERSION:
         for r in runs.values():
-            if r.get("track") in ("ok", "empty"):
+            if r.get("source", "garmin") == "garmin" and r.get("track") in ("ok", "empty"):
                 r["track"] = "pending"
     return runs
 
@@ -276,10 +276,13 @@ def save_runs(runs: dict[int, dict]) -> None:
 
 
 def sync(api_key: str, full: bool) -> None:
-    runs = {} if full else load_runs()
+    runs = load_runs()
+    if full:
+        runs = {rid: r for rid, r in runs.items() if r.get("source", "garmin") != "garmin"}
     start_date = None
-    if runs:
-        newest = max(date.fromisoformat(r["date"]) for r in runs.values() if r.get("date"))
+    garmin_runs = [r for r in runs.values() if r.get("source", "garmin") == "garmin" and r.get("date")]
+    if garmin_runs and not full:
+        newest = max(date.fromisoformat(r["date"]) for r in garmin_runs)
         start_date = (newest - timedelta(days=INCREMENTAL_OVERLAP_DAYS)).isoformat()
 
     token = get_token(api_key)
@@ -300,7 +303,8 @@ def sync(api_key: str, full: bool) -> None:
 
     # Runs deleted in Garmin within the re-fetched window disappear here too.
     if start_date:
-        for rid in [rid for rid, r in runs.items() if r["date"] >= start_date and rid not in fetched_ids]:
+        for rid in [rid for rid, r in runs.items()
+                    if r.get("source", "garmin") == "garmin" and r["date"] >= start_date and rid not in fetched_ids]:
             print(f"Удалена в Garmin: {runs[rid]['date']} {runs[rid]['name']}")
             runs.pop(rid)
             (TRACKS_DIR / f"{rid}.json").unlink(missing_ok=True)
@@ -311,7 +315,8 @@ def sync(api_key: str, full: bool) -> None:
             if int(f.stem) not in runs:
                 f.unlink()
 
-    pending = sorted((r for r in runs.values() if r.get("track") == "pending"), key=lambda r: r["start"], reverse=True)
+    pending = sorted((r for r in runs.values()
+                      if r.get("track") == "pending" and r.get("source", "garmin") == "garmin"), key=lambda r: r["start"], reverse=True)
     downloads = 0
     for run in pending[:MAX_TRACK_DOWNLOADS]:
         try:
