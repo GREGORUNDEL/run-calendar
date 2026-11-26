@@ -433,3 +433,23 @@ body .leaflet-container .leaflet-control-attribution a { color: var(--orange); }
   .sticker.pressed, .sheet { animation: none; }
   .run-sheet { transition: none; }
 }
+
+/* ---------- press feedback */
+.day > .num, .day > .sticker, .day.planned::before {
+  transition: transform .35s cubic-bezier(.3, 1.6, .5, 1), filter .2s;
+}
+.day:active > .num, .day:active > .sticker, .day.planned:active::before {
+  transform: scale(.86);
+  transition-duration: .08s;
+}
+.day.has-run:active .sticker { filter: brightness(.85); }
+.month.fading .day:active > * { transform: none; }
+.map { transition: transform .35s cubic-bezier(.3, 1.6, .5, 1); }
+.map:active { transform: scale(.98); transition-duration: .1s; }
+.done, .ghost, .primary, .total, .count-all { transition: opacity .15s, transform .3s cubic-bezier(.3, 1.6, .5, 1); }
+.done:active, .ghost:active, .primary:active { opacity: .5; }
+.total:active, .count-all:active { transform: scale(.92); }
+.haptic { position: fixed; left: -100px; top: 0; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+@media (prefers-reduced-motion: reduce) {
+  .day > .num, .day > .sticker, .map { transition: none; }
+}

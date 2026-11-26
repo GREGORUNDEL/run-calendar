@@ -296,6 +296,7 @@ async function drawMap(el, run) {
 
 let fullMap = null;
 async function openFullMap(run) {
+  haptic();
   const wrap = $('mapView');
   $('mapTitle').textContent = run.name || 'Пробежка';
   wrap.hidden = false;
@@ -391,6 +392,7 @@ function showSheet() {
 
 function closeRunSheet() {
   const el = $('runSheet');
+  if (sheet.open) haptic();
   sheet.open = false;
   sheet.key = null;
   setSheetHeight(0);
@@ -407,7 +409,8 @@ function markSelected(key) {
   if (key) document.querySelector(`.day[data-date="${key}"]`)?.classList.add('selected');
 }
 
-function openDay(key) {
+function openDay(key, silent) {
+  if (!silent) haptic();
   const runs = state.byDate.get(key) || [];
   sheet.key = key;
   markSelected(key);
@@ -518,6 +521,26 @@ function gh(path, token, init = {}) {
   });
 }
 
+/* Light haptic tap. iOS 18+ Safari ticks when a switch checkbox toggles; elsewhere vibrate if available. */
+let hapticLabel = null;
+function haptic() {
+  try {
+    if (navigator.vibrate) { navigator.vibrate(8); return; }
+    if (!hapticLabel) {
+      hapticLabel = document.createElement('label');
+      hapticLabel.className = 'haptic';
+      hapticLabel.setAttribute('aria-hidden', 'true');
+      const input = document.createElement('input');
+      input.type = 'checkbox';
+      input.setAttribute('switch', '');
+      input.tabIndex = -1;
+      hapticLabel.appendChild(input);
+      document.body.appendChild(hapticLabel);
+    }
+    hapticLabel.click();
+  } catch { /* no haptics */ }
+}
+
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /* Sync runs automatically when the app is opened (at most every 10 minutes). */
@@ -598,7 +621,8 @@ async function sync() {
     added.forEach((r) => state.fresh.add(r.id));
     const openKey = sheet.open ? sheet.key : null;
     render({ scrollTo: openKey ? null : added.reduce((a, b) => (b.start > a.start ? b : a)).date.slice(0, 7) });
-    if (openKey) openDay(openKey);
+    if (openKey) openDay(openKey, true);
+    haptic();
   } catch (err) {
     setStatus(err.message || 'Синхронизация не удалась.', 'error');
   } finally {
@@ -610,6 +634,11 @@ async function sync() {
 /* ------------------------------------------------------------ init */
 async function init() {
   // No pinch zoom (iOS ignores user-scalable=no in Safari).
+  document.addEventListener('touchstart', () => {}, { passive: true }); // enables :active on iOS
+  document.getElementById('feed').addEventListener('click', (e) => {
+    const day = e.target.closest('.day');
+    if (day && !day.classList.contains('has-run') && day.querySelector('.num') && !day.closest('.fading')) haptic();
+  });
   ['gesturestart', 'gesturechange'].forEach((t) => document.addEventListener(t, (e) => e.preventDefault(), { passive: false }));
   document.addEventListener('dblclick', (e) => e.preventDefault(), { passive: false });
   $('sheetDone').addEventListener('click', closeRunSheet);
