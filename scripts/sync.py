@@ -40,7 +40,7 @@ MAX_PAGES = 200
 INCREMENTAL_OVERLAP_DAYS = 7
 MAX_TRACK_DOWNLOADS = int(os.environ.get("MAX_TRACK_DOWNLOADS", "150"))
 TRIM_METERS = 0            # metres hidden at start and end of every route (0 = full route)
-TRACK_VERSION = 2          # bump to re-download all routes after changing track processing
+TRACK_VERSION = 3          # bump to re-download all routes after changing track processing
 SIMPLIFY_METERS = 4        # Douglas-Peucker tolerance
 TIMEOUT = 60
 
@@ -158,7 +158,6 @@ def _num(value, digits=None):
 
 def summarize(activity: dict) -> dict:
     start = str(activity.get("startTimeLocal") or activity.get("startTimeGMT") or "")
-    has_gps = bool(activity.get("hasPolyline")) or activity.get("startLatitude") is not None
     return {
         "id": int(activity["activityId"]),
         "date": start[:10],
@@ -172,16 +171,22 @@ def summarize(activity: dict) -> dict:
         "maxHr": _num(activity.get("maxHR")),
         "elevGain": _num(activity.get("elevationGain")),
         "calories": _num(activity.get("calories")),
-        "track": "pending" if has_gps else "none",
+        "track": "pending",  # FIT not processed yet (route + heart rate)
     }
 
 
 # --------------------------------------------------------------------------- tracks
 
-def fit_points(fit_bytes: bytes) -> list[tuple[float, float]]:
+HR_FROM, HR_STEP, HR_BINS = 60, 5, 32       # bpm histogram: 60-64, 65-69, ... 215+
+HR_MAX_GAP = 10                               # seconds; longer gaps are pauses
+
+
+def fit_data(fit_bytes: bytes):
+    """Route points and a heart-rate histogram (seconds per 5-bpm bin) from a FIT file."""
     import fitdecode
 
     points: list[tuple[float, float]] = []
+    samples: list[tuple[float, int]] = []
     with fitdecode.FitReader(io.BytesIO(fit_bytes), check_crc=fitdecode.CrcCheck.DISABLED,
                              error_handling=fitdecode.ErrorHandling.IGNORE) as fit:
         for frame in fit:
@@ -189,12 +194,30 @@ def fit_points(fit_bytes: bytes) -> list[tuple[float, float]]:
                 continue
             lat = frame.get_value("position_lat", fallback=None)
             lon = frame.get_value("position_long", fallback=None)
-            if lat is None or lon is None:
-                continue
-            lat, lon = lat * 180 / 2**31, lon * 180 / 2**31
-            if -90 <= lat <= 90 and -180 <= lon <= 180 and not (lat == 0 and lon == 0):
-                points.append((lat, lon))
-    return points
+            if lat is not None and lon is not None:
+                lat, lon = lat * 180 / 2**31, lon * 180 / 2**31
+                if -90 <= lat <= 90 and -180 <= lon <= 180 and not (lat == 0 and lon == 0):
+                    points.append((lat, lon))
+            hr = frame.get_value("heart_rate", fallback=None)
+            ts = frame.get_value("timestamp", fallback=None)
+            if hr and ts is not None and 30 <= hr <= 250:
+                t = ts.timestamp() if hasattr(ts, "timestamp") else float(ts)
+                samples.append((t, int(hr)))
+
+    hist = [0] * HR_BINS
+    for (t0, hr), (t1, _) in zip(samples, samples[1:]):
+        dt = t1 - t0
+        if 0 < dt <= HR_MAX_GAP:
+            idx = min(HR_BINS - 1, max(0, (hr - HR_FROM) // HR_STEP))
+            hist[idx] += dt
+    hist = [round(x) for x in hist]
+    while hist and hist[-1] == 0:
+        hist.pop()
+    return points, ({"from": HR_FROM, "step": HR_STEP, "s": hist} if any(hist) else None)
+
+
+def fit_points(fit_bytes: bytes) -> list[tuple[float, float]]:
+    return fit_data(fit_bytes)[0]
 
 
 def _dist(a, b) -> float:
@@ -245,9 +268,10 @@ def simplify(points, tolerance: float):
     return [p for p, k in zip(points, keep) if k]
 
 
-def build_track(fit_bytes: bytes):
-    pts = simplify(trim(fit_points(fit_bytes), TRIM_METERS), SIMPLIFY_METERS)
-    return [[round(lat, 5), round(lon, 5)] for lat, lon in pts]
+def process_fit(fit_bytes: bytes):
+    points, hr = fit_data(fit_bytes)
+    pts = simplify(trim(points, TRIM_METERS), SIMPLIFY_METERS)
+    return [[round(lat, 5), round(lon, 5)] for lat, lon in pts], hr
 
 
 # --------------------------------------------------------------------------- main
@@ -259,7 +283,7 @@ def load_runs() -> dict[int, dict]:
     runs = {int(r["id"]): r for r in data.get("runs", [])}
     if data.get("trackVersion") != TRACK_VERSION:
         for r in runs.values():
-            if r.get("source", "garmin") == "garmin" and r.get("track") in ("ok", "empty"):
+            if r.get("source", "garmin") == "garmin" and r.get("track") in ("ok", "empty", "none"):
                 r["track"] = "pending"
     return runs
 
@@ -297,8 +321,10 @@ def sync(api_key: str, full: bool) -> None:
         old = runs.get(summary["id"])
         if old is None:
             added += 1
-        elif old.get("track") in ("ok", "empty"):
+        elif old.get("track") in ("ok", "empty", "none"):
             summary["track"] = old["track"]
+            if old.get("hr"):
+                summary["hr"] = old["hr"]
         runs[summary["id"]] = summary
 
     # Runs deleted in Garmin within the re-fetched window disappear here too.
@@ -321,16 +347,21 @@ def sync(api_key: str, full: bool) -> None:
     for run in pending[:MAX_TRACK_DOWNLOADS]:
         try:
             fit = download_fit(token, run["id"])
-            track = build_track(fit) if fit else []
+            track, hr = process_fit(fit) if fit else ([], None)
         except Exception as exc:  # keep syncing other runs
             print(f"Маршрут {run['date']} не получен: {exc}")
             continue
         downloads += 1
+        if hr:
+            run["hr"] = hr
+        else:
+            run.pop("hr", None)
         if track:
             (TRACKS_DIR / f"{run['id']}.json").write_text(json.dumps(track, separators=(",", ":")), encoding="utf-8")
             run["track"] = "ok"
         else:
-            run["track"] = "empty"
+            run["track"] = "none"
+            (TRACKS_DIR / f"{run['id']}.json").unlink(missing_ok=True)
         time.sleep(0.3)
 
     left = sum(1 for r in runs.values() if r.get("track") == "pending")

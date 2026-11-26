@@ -18,10 +18,10 @@
 <body>
 <header class="bar">
   <div class="bar-row">
-    <h1>Пробежки<span class="count-all" id="countAll"></span></h1>
+    <h1>Пробежки<button class="count-all" id="countAll" title="Обзор по годам"></button></h1>
     <div class="bar-right">
       <span class="spin" id="syncSpin" hidden aria-label="Синхронизация"></span>
-      <span class="total" id="total" title="Всего пробежано"></span>
+      <button class="total" id="total" title="Обзор по годам"></button>
     </div>
   </div>
   <p class="status" id="status" role="status"></p>
@@ -40,6 +40,14 @@
   </div>
   <div class="sheet-body" id="sheetBody"></div>
 </article>
+
+<div class="year-view" id="yearView" hidden>
+  <div class="year-bar">
+    <span>Обзор по годам</span>
+    <button class="done" id="yearDone">Готово</button>
+  </div>
+  <div class="year-body" id="yearBody"></div>
+</div>
 
 <div class="map-view" id="mapView" hidden>
   <div class="map-full" id="mapFull"></div>

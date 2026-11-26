@@ -309,6 +309,35 @@ function closeFullMap() {
   if (fullMap) { fullMap.remove(); fullMap = null; }
 }
 
+/* Heart-rate zones as % of max HR (Garmin-style 5 zones). */
+const MAX_HR = 201;
+const ZONE_PCT = [0.6, 0.7, 0.8, 0.9];
+
+function zoneSeconds(hr) {
+  const bounds = [0, ...ZONE_PCT.map((p) => Math.round(MAX_HR * p)), 999];
+  const out = [0, 0, 0, 0, 0];
+  hr.s.forEach((sec, i) => {
+    if (!sec) return;
+    const lo = hr.from + i * hr.step, hi = lo + hr.step;
+    for (let z = 0; z < 5; z++) {
+      const overlap = Math.max(0, Math.min(hi, bounds[z + 1]) - Math.max(lo, bounds[z]));
+      out[z] += sec * overlap / hr.step;
+    }
+  });
+  return out;
+}
+
+function zonesHTML(r) {
+  if (!r.hr || !r.hr.s) return '';
+  const z = zoneSeconds(r.hr);
+  const total = z.reduce((a, b) => a + b, 0);
+  if (!total) return '';
+  const easy = Math.round(((z[0] + z[1]) / total) * 100);
+  const bar = z.map((sec, i) => (sec / total >= 0.005 ? `<span class="z${i + 1}" style="flex:${sec}"></span>` : '')).join('');
+  return `<div class="zones"><div class="zone-bar" aria-hidden="true">${bar}</div>
+    <p><b>${easy}%</b> времени в лёгкой зоне, до ${Math.round(MAX_HR * ZONE_PCT[1])} уд/мин</p></div>`;
+}
+
 function runHTML(r, i) {
   const time = r.start ? r.start.slice(11, 16) : '';
   const fig = (label, value, cls = '') => `<div class="${cls}"><dt>${label}</dt><dd>${value}</dd></div>`;
@@ -323,6 +352,7 @@ function runHTML(r, i) {
       ${fig('Макс. пульс', r.maxHr ? `${r.maxHr}<small> уд/мин</small>` : '—')}
       ${fig('Набор высоты', r.elevGain != null ? `${r.elevGain}<small> м</small>` : '—')}
     </dl>
+    ${zonesHTML(r)}
     ${r.track === 'ok' ? `<div class="map" data-run="${i}"></div>`
       : r.track === 'pending' ? '<p class="map-note">Маршрут загрузится при следующей синхронизации.</p>'
       : r.track === 'none' ? '<p class="map-note">Без GPS-маршрута.</p>' : ''}
@@ -470,6 +500,50 @@ function initSheetDrag() {
   el.addEventListener('touchcancel', end);
 
   window.addEventListener('resize', () => { if (sheet.open) setSheetHeight(sheetHeight(), false); });
+}
+
+/* ------------------------------------------------------------ year overview */
+const MONTHS_SHORT = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
+
+function renderYears() {
+  const kmByDay = new Map();
+  for (const r of state.runs) kmByDay.set(r.date, (kmByDay.get(r.date) || 0) + (r.distance || 0));
+  const years = [...new Set(state.runs.map((r) => Number(r.date.slice(0, 4))))].sort((a, b) => b - a);
+  const t = new Date();
+  const todayIso = iso(t.getFullYear(), t.getMonth(), t.getDate());
+  return years.map((y) => {
+    const yearRuns = state.runs.filter((r) => r.date.startsWith(`${y}-`));
+    const yearKm = yearRuns.reduce((a, r) => a + (r.distance || 0), 0);
+    let rows = '';
+    for (let m = 0; m < 12; m++) {
+      const days = new Date(y, m + 1, 0).getDate();
+      let dots = '', monthM = 0;
+      for (let d = 1; d <= 31; d++) {
+        if (d > days) { dots += '<i class="off"></i>'; continue; }
+        const key = iso(y, m, d);
+        const meters = kmByDay.get(key) || 0;
+        monthM += meters;
+        const cls = meters >= 10000 ? 'r3' : meters >= 5000 ? 'r2' : meters > 0 ? 'r1' : key > todayIso ? 'fut' : '';
+        dots += `<i class="${cls}"></i>`;
+      }
+      rows += `<div class="ym"><span class="ym-name">${MONTHS_SHORT[m]}</span><div class="ym-dots">${dots}</div>
+        <span class="ym-km${monthM ? '' : ' zero'}">${monthM ? kmTotal(monthM) : '—'}</span></div>`;
+    }
+    return `<section class="year"><h2>${y}</h2>
+      <p>${yearRuns.length} ${plural(yearRuns.length, 'пробежка', 'пробежки', 'пробежек')}, ${kmTotal(yearKm)} км</p>${rows}</section>`;
+  }).join('');
+}
+
+function openYears() {
+  if (!state.runs.length) return;
+  haptic();
+  $('yearBody').innerHTML = renderYears();
+  $('yearBody').scrollTop = 0;
+  $('yearView').hidden = false;
+}
+function closeYears() {
+  haptic();
+  $('yearView').hidden = true;
 }
 
 /* ------------------------------------------------------------ sync */
@@ -643,9 +717,13 @@ async function init() {
   document.addEventListener('dblclick', (e) => e.preventDefault(), { passive: false });
   $('sheetDone').addEventListener('click', closeRunSheet);
   $('mapDone').addEventListener('click', closeFullMap);
+  $('total').addEventListener('click', openYears);
+  $('countAll').addEventListener('click', openYears);
+  $('yearDone').addEventListener('click', closeYears);
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
-    if (!$('mapView').hidden) closeFullMap();
+    if (!$('yearView').hidden) closeYears();
+    else if (!$('mapView').hidden) closeFullMap();
     else if (sheet.open) closeRunSheet();
   });
   initSheetDrag();
