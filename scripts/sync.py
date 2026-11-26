@@ -39,7 +39,8 @@ PAGE_SIZE = 100
 MAX_PAGES = 200
 INCREMENTAL_OVERLAP_DAYS = 7
 MAX_TRACK_DOWNLOADS = int(os.environ.get("MAX_TRACK_DOWNLOADS", "150"))
-TRIM_METERS = 300          # hidden at start and end of every route
+TRIM_METERS = 0            # metres hidden at start and end of every route (0 = full route)
+TRACK_VERSION = 2          # bump to re-download all routes after changing track processing
 SIMPLIFY_METERS = 4        # Douglas-Peucker tolerance
 TIMEOUT = 60
 
@@ -208,6 +209,8 @@ def trim(points, meters: float):
     """Drop the first and last `meters` of the route (privacy)."""
     if len(points) < 2:
         return []
+    if meters <= 0:
+        return list(points)
     cum = [0.0]
     for a, b in zip(points, points[1:]):
         cum.append(cum[-1] + _dist(a, b))
@@ -253,13 +256,19 @@ def load_runs() -> dict[int, dict]:
     if not RUNS_FILE.exists():
         return {}
     data = json.loads(RUNS_FILE.read_text(encoding="utf-8"))
-    return {int(r["id"]): r for r in data.get("runs", [])}
+    runs = {int(r["id"]): r for r in data.get("runs", [])}
+    if data.get("trackVersion") != TRACK_VERSION:
+        for r in runs.values():
+            if r.get("track") in ("ok", "empty"):
+                r["track"] = "pending"
+    return runs
 
 
 def save_runs(runs: dict[int, dict]) -> None:
     ordered = sorted(runs.values(), key=lambda r: (r["start"], r["id"]), reverse=True)
     payload = {
         "updated": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "trackVersion": TRACK_VERSION,
         "runs": ordered,
     }
     DATA_DIR.mkdir(parents=True, exist_ok=True)
