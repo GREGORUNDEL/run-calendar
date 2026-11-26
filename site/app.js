@@ -210,6 +210,7 @@ function render({ scrollTo } = {}) {
   if (sheet.key) markSelected(sheet.key);
   setStatus('');
   $('total').textContent = totalText();
+  $('countAll').textContent = state.runs.length || '';
   state.fresh.clear();
   scrollToMonth(scrollTo || monthKey(t.getFullYear(), t.getMonth()), false);
 }
@@ -591,6 +592,7 @@ async function sync() {
     const added = state.runs.filter((r) => !before.has(r.id));
     if (!added.length) {
       $('total').textContent = totalText();
+      $('countAll').textContent = state.runs.length || '';
       return;
     }
     added.forEach((r) => state.fresh.add(r.id));
