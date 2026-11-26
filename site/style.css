@@ -123,7 +123,7 @@ button:focus-visible, input:focus-visible {
 
 .weekdays {
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   margin-top: 12px;
   padding-bottom: 6px;
 }
@@ -154,11 +154,12 @@ button:focus-visible, input:focus-visible {
 
 .grid {
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   row-gap: 4px;
 }
 .day {
   position: relative;
+  min-width: 0;
   aspect-ratio: 1;
   display: grid;
   place-items: center;
@@ -516,7 +517,7 @@ body .leaflet-container .leaflet-control-attribution a { color: var(--orange); }
 .ym-name { font-size: 13px; color: var(--label2); }
 .ym-km { text-align: right; font-family: var(--rounded); font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .ym-km.zero { color: var(--label3); font-weight: 500; }
-.ym-dots { display: grid; grid-template-columns: repeat(31, 1fr); gap: 2px; }
+.ym-dots { display: grid; grid-template-columns: repeat(31, minmax(0, 1fr)); gap: 2px; }
 .ym-dots i {
   display: block;
   aspect-ratio: 1;

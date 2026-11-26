@@ -737,6 +737,20 @@ async function init() {
   }
   render();
   maybeAutoSync();
+
+  // Rotating the phone: rebuild the calendar for the new width so nothing keeps the old size.
+  let lastWidth = window.innerWidth, resizeTimer = 0;
+  const relayout = () => {
+    if (window.innerWidth === lastWidth) return;
+    lastWidth = window.innerWidth;
+    const bar = barHeight();
+    const top = [...document.querySelectorAll('.month')].find((m) => m.getBoundingClientRect().bottom > bar + 40);
+    const openKey = sheet.open ? sheet.key : null;
+    render({ scrollTo: top ? top.id.slice(2) : null });
+    if (openKey) openDay(openKey, true);
+  };
+  window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(relayout, 150); });
+  window.addEventListener('orientationchange', () => setTimeout(relayout, 300));
   document.addEventListener('visibilitychange', maybeAutoSync);
 }
 
