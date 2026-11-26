@@ -38,7 +38,7 @@ button:focus-visible, input:focus-visible {
   backdrop-filter: saturate(180%) blur(20px);
   border-bottom: 0.5px solid var(--sep);
 }
-.bar-row, .weekdays, .feed, .foot, .empty { max-width: 640px; margin-left: auto; margin-right: auto; }
+.bar-row, .weekdays, .feed { max-width: 640px; margin-left: auto; margin-right: auto; }
 .bar-row {
   display: flex;
   align-items: center;
@@ -79,6 +79,8 @@ button:focus-visible, input:focus-visible {
   line-height: 20px;
   color: var(--label2);
 }
+.status.idle { color: var(--label3); font-size: 13px; line-height: 18px; }
+.status:empty { display: none; }
 .status.error { color: var(--red); }
 .status a { color: var(--orange); }
 
@@ -147,9 +149,9 @@ button:focus-visible, input:focus-visible {
   color: #000;
   display: grid;
   place-items: center;
-  rotate: var(--r, 0deg);
 }
-.day.today .sticker { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--label); }
+.day.today .sticker { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--orange); }
+.day.selected .sticker { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--label); }
 .day.has-run:active .sticker { filter: brightness(0.85); }
 .sticker svg { width: 100%; height: 100%; display: block; }
 .sticker text {
@@ -181,36 +183,47 @@ button:focus-visible, input:focus-visible {
   100% { scale: 1; }
 }
 
-.empty {
-  padding: 16px;
-  font-size: 17px;
-  line-height: 24px;
-  color: var(--label2);
-}
-.foot {
-  padding: 22px 16px calc(env(safe-area-inset-bottom) + 28px);
-  text-align: center;
-  font-size: 13px;
-  color: var(--label3);
-}
+.feed-end { height: 40vh; }
 
-/* ---------- sheet */
+/* ---------- sheets */
 .sheet-wrap { position: fixed; inset: 0; z-index: 10; }
 .scrim { position: absolute; inset: 0; background: rgba(0, 0, 0, .5); }
-.sheet {
-  position: absolute;
+.sheet, .run-sheet {
+  position: fixed;
   left: 0; right: 0; bottom: 0;
   max-width: 640px;
   margin: 0 auto;
-  max-height: calc(100vh - var(--top) - 20px);
-  overflow-y: auto;
-  overscroll-behavior: contain;
   background: var(--bg2);
   border-radius: 14px 14px 0 0;
+  box-shadow: 0 -8px 30px rgba(0, 0, 0, .5);
+}
+.sheet {
+  position: absolute;
+  max-height: calc(100vh - var(--top) - 20px);
+  overflow-y: auto;
   padding: 6px 16px calc(env(safe-area-inset-bottom) + 24px);
   animation: rise .28s cubic-bezier(.2, .8, .2, 1);
 }
 @keyframes rise { from { translate: 0 100%; } }
+.run-sheet {
+  z-index: 8;
+  display: flex;
+  flex-direction: column;
+  height: 0;
+  overflow: hidden;
+  transition: height .32s cubic-bezier(.2, .8, .2, 1);
+  touch-action: none;
+}
+.run-sheet[hidden] { display: none; }
+.drag-zone { padding: 6px 16px 0; flex: none; cursor: grab; }
+.sheet-body {
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  padding: 0 16px calc(env(safe-area-inset-bottom) + 24px);
+  touch-action: pan-y;
+}
 .grabber {
   width: 36px; height: 5px;
   border-radius: 3px;
@@ -224,13 +237,13 @@ button:focus-visible, input:focus-visible {
   gap: 12px;
   margin-bottom: 14px;
 }
-.sheet h2 {
+.sheet h2, .run-sheet h2 {
   margin: 0;
   font-size: 22px;
   line-height: 28px;
   font-weight: 700;
 }
-.sheet h2::first-letter { text-transform: uppercase; }
+.run-sheet h2::first-letter { text-transform: uppercase; }
 .done {
   appearance: none;
   border: 0;
@@ -276,7 +289,7 @@ button:focus-visible, input:focus-visible {
 .map-note { margin: 0; font-size: 15px; color: var(--label2); }
 
 /* leaflet in dark */
-.map.leaflet-container { background: var(--bg); }
+.map.leaflet-container { background: #f2efe9; }
 .map .leaflet-control-attribution {
   background: rgba(0, 0, 0, .55);
   color: var(--label2);
@@ -311,4 +324,5 @@ button:focus-visible, input:focus-visible {
 
 @media (prefers-reduced-motion: reduce) {
   .sticker.pressed, .sheet { animation: none; }
+  .run-sheet { transition: none; }
 }

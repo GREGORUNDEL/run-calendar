@@ -23,26 +23,22 @@
       <svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 0 1-14.3 4.9M4 12a8 8 0 0 1 14.3-4.9"/><path d="M18.5 3v4.2h-4.2M5.5 21v-4.2h4.2"/></svg>
     </button>
   </div>
-  <p class="status" id="status" role="status" hidden></p>
+  <p class="status" id="status" role="status"></p>
   <div class="weekdays" aria-hidden="true"><span>пн</span><span>вт</span><span>ср</span><span>чт</span><span>пт</span><span>сб</span><span>вс</span></div>
 </header>
 
 <main class="feed" id="feed" aria-label="Календарь пробежек"></main>
 
-<p class="empty" id="empty" hidden>Пробежек пока нет. Нажми кнопку синхронизации справа вверху, чтобы забрать их из Garmin.</p>
-<footer class="foot" id="updated"></footer>
-
-<div class="sheet-wrap" id="sheetWrap" hidden>
-  <div class="scrim" id="scrim"></div>
-  <article class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
+<article class="run-sheet" id="runSheet" role="dialog" aria-labelledby="sheetTitle" hidden>
+  <div class="drag-zone" id="dragZone">
     <div class="grabber"></div>
     <div class="sheet-head">
       <h2 id="sheetTitle"></h2>
       <button class="done" id="sheetDone">Готово</button>
     </div>
-    <div id="sheetBody"></div>
-  </article>
-</div>
+  </div>
+  <div class="sheet-body" id="sheetBody"></div>
+</article>
 
 <div class="sheet-wrap" id="tokenWrap" hidden>
   <div class="scrim" data-close-token></div>

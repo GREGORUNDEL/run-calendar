@@ -58,11 +58,6 @@ function updatedText(isoStr) {
   const sameDay = d.toDateString() === new Date().toDateString();
   return `Синхронизировано ${sameDay ? 'сегодня' : `${d.getDate()} ${MONTHS_GEN[d.getMonth()]}`} в ${time}`;
 }
-function rotationFor(id) {
-  let h = 0;
-  for (const c of String(id)) h = (h * 31 + c.charCodeAt(0)) | 0;
-  return ((Math.abs(h) % 13) - 6) + 'deg';
-}
 function escapeHTML(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
@@ -106,7 +101,7 @@ function monthRange() {
     if (d < first) first = d;
   }
   const list = [];
-  for (let d = first; d <= new Date(y, m, 1); d = new Date(d.getFullYear(), d.getMonth() + 1, 1)) {
+  for (let d = first; d <= new Date(y, m + 12, 1); d = new Date(d.getFullYear(), d.getMonth() + 1, 1)) {
     list.push([d.getFullYear(), d.getMonth()]);
   }
   return list;
@@ -147,23 +142,33 @@ function renderMonth(year, month, todayIso) {
       cell.setAttribute('aria-label', `${d} ${MONTHS_GEN[month]}: ${runs.length} ${plural(runs.length, 'пробежка', 'пробежки', 'пробежек')}, ${km2(total)} км`);
       const sticker = document.createElement('span');
       sticker.className = 'sticker';
-      sticker.style.setProperty('--r', rotationFor(runs[0].id));
       sticker.innerHTML = stickerSVG(total);
       if (runs.some((r) => state.fresh.has(r.id))) sticker.classList.add('pressed');
       cell.appendChild(sticker);
       if (runs.length > 1) cell.insertAdjacentHTML('beforeend', `<span class="count">${runs.length}</span>`);
+      cell.dataset.date = key;
       cell.addEventListener('click', () => openDay(key));
     }
     grid.appendChild(cell);
   }
 
   const yearSuffix = year === now.getFullYear() ? '' : ` ${year}`;
+  const isFuture = new Date(year, month, 1) > now;
   const summary = count
     ? `${count} ${plural(count, 'пробежка', 'пробежки', 'пробежек')}, ${kmTotal(meters)} км, ${hoursText(seconds)}`
-    : 'Без пробежек';
-  section.innerHTML = `<div class="month-head"><h2>${MONTHS[month]}${yearSuffix}</h2><p>${summary}</p></div>`;
+    : isFuture ? '' : 'Без пробежек';
+  section.innerHTML = `<div class="month-head"><h2>${MONTHS[month]}${yearSuffix}</h2>${summary ? `<p>${summary}</p>` : ''}</div>`;
   section.appendChild(grid);
   return section;
+}
+
+const barHeight = () => document.querySelector('.bar').offsetHeight;
+
+function scrollToMonth(key, smooth) {
+  const target = $(`m-${key}`);
+  if (!target) return;
+  const top = target.getBoundingClientRect().top + window.scrollY - barHeight() + 6;
+  window.scrollTo({ top, behavior: smooth ? 'smooth' : 'auto' });
 }
 
 function render({ scrollTo } = {}) {
@@ -172,17 +177,11 @@ function render({ scrollTo } = {}) {
   const feed = $('feed');
   feed.innerHTML = '';
   for (const [y, m] of monthRange()) feed.appendChild(renderMonth(y, m, todayIso));
-  $('empty').hidden = state.runs.length > 0;
-  $('updated').textContent = updatedText(state.updated);
+  feed.appendChild(Object.assign(document.createElement('div'), { className: 'feed-end' }));
+  if (sheet.key) markSelected(sheet.key);
+  setStatus('');
   state.fresh.clear();
-
-  const target = scrollTo && $(`m-${scrollTo}`);
-  if (target && target !== feed.lastElementChild) {
-    const barH = document.querySelector('.bar').offsetHeight;
-    window.scrollTo(0, target.getBoundingClientRect().top + window.scrollY - barH);
-  } else {
-    window.scrollTo(0, document.documentElement.scrollHeight);
-  }
+  scrollToMonth(scrollTo || monthKey(t.getFullYear(), t.getMonth()), false);
 }
 
 /* ------------------------------------------------------------ day sheet */
@@ -205,7 +204,6 @@ function loadLeaflet() {
   return leafletPromise;
 }
 
-const ESRI = 'https://server.arcgisonline.com/ArcGIS/rest/services';
 async function drawMap(el, run) {
   try {
     const [L, track] = await Promise.all([
@@ -216,18 +214,12 @@ async function drawMap(el, run) {
     if (!el.isConnected) return;
     const map = L.map(el, { zoomControl: false, scrollWheelZoom: false });
     map.attributionControl.setPrefix(false);
-    // Hybrid: satellite imagery + roads + place names
-    L.tileLayer(`${ESRI}/World_Imagery/MapServer/tile/{z}/{y}/{x}`, {
-      maxZoom: 19, maxNativeZoom: 18, attribution: 'Esri, Maxar, Earthstar Geographics',
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
     }).addTo(map);
-    L.tileLayer(`${ESRI}/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}`, {
-      maxZoom: 19, maxNativeZoom: 18, opacity: 0.75,
-    }).addTo(map);
-    L.tileLayer(`${ESRI}/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}`, {
-      maxZoom: 19, maxNativeZoom: 18,
-    }).addTo(map);
-    L.polyline(track, { color: '#000', weight: 8, opacity: 0.45 }).addTo(map);
-    const line = L.polyline(track, { color: '#ff9f0a', weight: 4.5, opacity: 1, lineJoin: 'round' }).addTo(map);
+    L.polyline(track, { color: '#3a1d00', weight: 8, opacity: 0.55 }).addTo(map);
+    const line = L.polyline(track, { color: '#ff6a00', weight: 4.5, opacity: 1, lineJoin: 'round' }).addTo(map);
     const dot = { radius: 6, weight: 2.5, color: '#000', fillOpacity: 1 };
     L.circleMarker(track[0], { ...dot, fillColor: '#ffffff' }).addTo(map);
     L.circleMarker(track[track.length - 1], { ...dot, fillColor: '#ff9f0a' }).addTo(map);
@@ -269,21 +261,132 @@ function closeSheet(wrap) {
   if (lastFocus) lastFocus.focus({ preventScroll: true });
 }
 
+/* Run sheet with iOS-style detents: medium (month stays visible above) and large. */
+const sheet = { key: null, detent: null };
+const topInset = () => parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--top')) || 20;
+
+function detentHeight(detent) {
+  const vh = window.innerHeight;
+  const large = vh - topInset() - 10;
+  if (detent === 'large') return large;
+  const month = sheet.key && $(`m-${sheet.key.slice(0, 7)}`);
+  const monthBottom = barHeight() + (month ? month.offsetHeight : 360) + 4;
+  return Math.min(large, Math.max(300, vh - monthBottom));
+}
+
+function setSheetHeight(h, animate = true) {
+  const el = $('runSheet');
+  el.style.transition = animate ? '' : 'none';
+  el.style.height = `${Math.max(0, h)}px`;
+}
+
+function setDetent(detent) {
+  const el = $('runSheet');
+  if (!detent) {
+    sheet.detent = null;
+    sheet.key = null;
+    setSheetHeight(0);
+    markSelected(null);
+    setTimeout(() => { if (!sheet.detent) el.hidden = true; }, 330);
+    return;
+  }
+  el.hidden = false;
+  sheet.detent = detent;
+  requestAnimationFrame(() => setSheetHeight(detentHeight(detent)));
+}
+
+function markSelected(key) {
+  document.querySelectorAll('.day.selected').forEach((d) => d.classList.remove('selected'));
+  if (key) document.querySelector(`.day[data-date="${key}"]`)?.classList.add('selected');
+}
+
 function openDay(key) {
   const runs = state.byDate.get(key) || [];
+  sheet.key = key;
+  markSelected(key);
   $('sheetTitle').textContent = dayTitle(key);
   const body = $('sheetBody');
   body.innerHTML = runs.map(runHTML).join('');
-  openSheet($('sheetWrap'));
+  body.scrollTop = 0;
+  scrollToMonth(key.slice(0, 7), true);
+  setDetent(sheet.detent === 'large' ? 'large' : 'medium');
   body.querySelectorAll('.map').forEach((el) => drawMap(el, runs[Number(el.dataset.run)]));
+}
+
+function initSheetDrag() {
+  const el = $('runSheet');
+  const body = $('sheetBody');
+  let drag = null;
+
+  el.addEventListener('touchstart', (e) => {
+    if (e.touches.length !== 1 || e.target.closest('.map')) return;
+    drag = {
+      y0: e.touches[0].clientY,
+      h0: el.offsetHeight,
+      fromHandle: !!e.target.closest('#dragZone'),
+      active: false,
+      last: [],
+    };
+  }, { passive: true });
+
+  el.addEventListener('touchmove', (e) => {
+    if (!drag) return;
+    const y = e.touches[0].clientY;
+    const dy = y - drag.y0;
+    if (!drag.active) {
+      if (Math.abs(dy) < 6) return;
+      const pullDown = dy > 0 && body.scrollTop <= 0;
+      const pullUp = dy < 0 && sheet.detent === 'medium';
+      if (drag.fromHandle || pullDown || pullUp) {
+        drag.active = true;
+        drag.y0 = y;
+      } else {
+        drag = null;
+        return;
+      }
+    }
+    e.preventDefault();
+    const h = Math.min(detentHeight('large'), drag.h0 - (y - drag.y0));
+    setSheetHeight(h, false);
+    drag.last.push([performance.now(), y]);
+    if (drag.last.length > 5) drag.last.shift();
+  }, { passive: false });
+
+  el.addEventListener('touchend', () => {
+    if (!drag || !drag.active) { drag = null; return; }
+    const h = el.offsetHeight;
+    const [t0, y0] = drag.last[0] || [0, 0];
+    const [t1, y1] = drag.last[drag.last.length - 1] || [1, 0];
+    const v = (y1 - y0) / Math.max(1, t1 - t0); // px per ms, >0 means down
+    const medium = detentHeight('medium');
+    const large = detentHeight('large');
+    let next;
+    if (v > 0.5) next = drag.h0 > medium + 40 ? 'medium' : null;
+    else if (v < -0.5) next = 'large';
+    else {
+      const options = [[0, null], [medium, 'medium'], [large, 'large']];
+      next = options.reduce((a, b) => (Math.abs(b[0] - h) < Math.abs(a[0] - h) ? b : a))[1];
+    }
+    drag = null;
+    if (next) setDetent(next);
+    else setDetent(null);
+  });
+
+  window.addEventListener('resize', () => { if (sheet.detent) setSheetHeight(detentHeight(sheet.detent), false); });
 }
 
 /* ------------------------------------------------------------ sync */
 function setStatus(text, kind) {
   const el = $('status');
-  el.hidden = !text;
+  if (!text) {
+    el.className = 'status idle';
+    el.textContent = state.runs.length
+      ? updatedText(state.updated)
+      : 'Пробежек пока нет. Нажми кнопку справа, чтобы забрать их из Garmin.';
+    return;
+  }
   el.className = 'status' + (kind ? ' ' + kind : '');
-  el.innerHTML = text || '';
+  el.innerHTML = text;
 }
 function setBusy(busy) {
   const b = $('sync');
@@ -396,15 +499,17 @@ async function sync() {
 /* ------------------------------------------------------------ init */
 async function init() {
   $('sync').addEventListener('click', sync);
-  $('scrim').addEventListener('click', () => closeSheet($('sheetWrap')));
-  $('sheetDone').addEventListener('click', () => closeSheet($('sheetWrap')));
+  $('sheetDone').addEventListener('click', () => setDetent(null));
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && !$('sheetWrap').hidden) closeSheet($('sheetWrap'));
+    if (e.key === 'Escape' && sheet.detent) setDetent(null);
   });
+  initSheetDrag();
   try {
     await loadData();
   } catch {
+    render();
     setStatus('Не удалось загрузить данные. Проверь интернет и обнови страницу.', 'error');
+    return;
   }
   render();
 }
