@@ -282,21 +282,56 @@ button:focus-visible, input:focus-visible {
 .figures dd small { font-size: 15px; font-weight: 500; color: var(--label2); }
 .figures .accent dd { color: var(--orange); }
 .map {
-  height: 260px;
+  position: relative;
+  height: 320px;
   border-radius: 10px;
   overflow: hidden;
-  background: var(--bg);
+  background: #f2efe9;
 }
+.map-tiles { position: absolute; inset: 0; }
+.map-open {
+  position: absolute;
+  inset: 0;
+  z-index: 500;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  cursor: zoom-in;
+}
+.map-view {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  background: #f2efe9;
+}
+.map-view[hidden] { display: none; }
+.map-full { position: absolute; inset: 0; }
+.map-bar {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: calc(var(--top) + 6px) 16px 10px;
+  background: rgba(28, 28, 30, 0.9);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  backdrop-filter: saturate(180%) blur(20px);
+  font-size: 17px;
+  font-weight: 600;
+}
+.map-bar span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .map-note { margin: 0; font-size: 15px; color: var(--label2); }
 
 /* leaflet in dark */
-.map.leaflet-container { background: #f2efe9; }
-.map .leaflet-control-attribution {
+.map-tiles.leaflet-container, .map-full.leaflet-container { background: #f2efe9; }
+body .leaflet-container .leaflet-control-attribution {
   background: rgba(0, 0, 0, .55);
   color: var(--label2);
   font-size: 10px;
 }
-.map .leaflet-control-attribution a { color: var(--orange); }
+body .leaflet-container .leaflet-control-attribution a { color: var(--orange); }
 
 /* token form */
 .note { margin: 0 0 14px; font-size: 15px; line-height: 20px; color: var(--label2); }

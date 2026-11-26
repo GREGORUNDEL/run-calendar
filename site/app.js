@@ -205,29 +205,77 @@ function loadLeaflet() {
   return leafletPromise;
 }
 
+const tracks = new Map();
+function loadTrack(run) {
+  if (!tracks.has(run.id)) {
+    tracks.set(run.id, fetch(`data/tracks/${run.id}.json?v=${encodeURIComponent(state.updated || '')}`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error('track'))))
+      .catch((e) => { tracks.delete(run.id); throw e; }));
+  }
+  return tracks.get(run.id);
+}
+
+function buildMap(L, el, track, interactive) {
+  const map = L.map(el, {
+    zoomControl: false,
+    attributionControl: true,
+    dragging: interactive,
+    touchZoom: interactive,
+    doubleClickZoom: interactive,
+    scrollWheelZoom: interactive,
+    boxZoom: false,
+    keyboard: false,
+    tap: false,
+  });
+  map.attributionControl.setPrefix(false);
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+  }).addTo(map);
+  L.polyline(track, { color: '#3a1d00', weight: 8, opacity: 0.55, interactive: false }).addTo(map);
+  const line = L.polyline(track, { color: '#ff6a00', weight: 4.5, opacity: 1, lineJoin: 'round', interactive: false }).addTo(map);
+  const dot = { radius: 6, weight: 2.5, color: '#000', fillOpacity: 1, interactive: false };
+  L.circleMarker(track[0], { ...dot, fillColor: '#ffffff' }).addTo(map);
+  L.circleMarker(track[track.length - 1], { ...dot, fillColor: '#ff9f0a' }).addTo(map);
+  const pad = interactive
+    ? { paddingTopLeft: [28, (document.querySelector('.map-bar')?.offsetHeight || 0) + 28], paddingBottomRight: [28, 40] }
+    : { padding: [24, 24] };
+  const fit = () => { map.invalidateSize(); map.fitBounds(line.getBounds(), pad); };
+  fit();
+  setTimeout(fit, 380); // after the sheet finishes opening
+  return map;
+}
+
 async function drawMap(el, run) {
   try {
-    const [L, track] = await Promise.all([
-      loadLeaflet(),
-      fetch(`data/tracks/${run.id}.json?v=${encodeURIComponent(state.updated || '')}`)
-        .then((r) => (r.ok ? r.json() : Promise.reject(new Error('track')))),
-    ]);
+    const [L, track] = await Promise.all([loadLeaflet(), loadTrack(run)]);
     if (!el.isConnected) return;
-    const map = L.map(el, { zoomControl: false, scrollWheelZoom: false });
-    map.attributionControl.setPrefix(false);
-    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19,
-      attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-    }).addTo(map);
-    L.polyline(track, { color: '#3a1d00', weight: 8, opacity: 0.55 }).addTo(map);
-    const line = L.polyline(track, { color: '#ff6a00', weight: 4.5, opacity: 1, lineJoin: 'round' }).addTo(map);
-    const dot = { radius: 6, weight: 2.5, color: '#000', fillOpacity: 1 };
-    L.circleMarker(track[0], { ...dot, fillColor: '#ffffff' }).addTo(map);
-    L.circleMarker(track[track.length - 1], { ...dot, fillColor: '#ff9f0a' }).addTo(map);
-    map.fitBounds(line.getBounds(), { padding: [22, 22] });
+    const holder = document.createElement('div');
+    holder.className = 'map-tiles';
+    el.appendChild(holder);
+    buildMap(L, holder, track, false);
+    const open = document.createElement('button');
+    open.className = 'map-open';
+    open.setAttribute('aria-label', 'Открыть карту');
+    open.addEventListener('click', () => openFullMap(run));
+    el.appendChild(open);
   } catch {
     el.replaceWith(Object.assign(document.createElement('p'), { className: 'map-note', textContent: 'Карту не удалось загрузить.' }));
   }
+}
+
+let fullMap = null;
+async function openFullMap(run) {
+  const wrap = $('mapView');
+  $('mapTitle').textContent = run.name || 'Пробежка';
+  wrap.hidden = false;
+  const [L, track] = await Promise.all([loadLeaflet(), loadTrack(run)]);
+  if (fullMap) fullMap.remove();
+  fullMap = buildMap(L, $('mapFull'), track, true);
+}
+function closeFullMap() {
+  $('mapView').hidden = true;
+  if (fullMap) { fullMap.remove(); fullMap = null; }
 }
 
 function runHTML(r, i) {
@@ -271,15 +319,30 @@ function monthGrid(key) {
   return month ? month.querySelector('.grid') : null;
 }
 
-function gridScrollTop(key) {
+// The selected day's week plus the two weeks before it stay visible above the sheet.
+function visibleRows(key) {
   const grid = monthGrid(key);
-  if (!grid) return window.scrollY;
-  return grid.getBoundingClientRect().top + window.scrollY - barHeight() - 6;
+  if (!grid) return null;
+  const cells = [...grid.children];
+  const idx = cells.findIndex((c) => c.dataset.date === key);
+  const lastRow = Math.floor((cells.length - 1) / 7);
+  const row = Math.max(0, Math.floor(idx / 7));
+  const startRow = Math.max(0, Math.min(row - 2, lastRow - 2));
+  const first = cells[startRow * 7];
+  const last = cells[Math.min(cells.length - 1, (startRow + 2) * 7)];
+  const top = first.getBoundingClientRect().top + window.scrollY;
+  const bottom = last.getBoundingClientRect().bottom + window.scrollY;
+  return { top, height: bottom - top };
+}
+
+function gridScrollTop(key) {
+  const rows = visibleRows(key);
+  return rows ? rows.top - barHeight() - 6 : window.scrollY;
 }
 
 function sheetHeight() {
-  const grid = monthGrid(sheet.key);
-  const used = barHeight() + 6 + (grid ? grid.offsetHeight : 360) + 8;
+  const rows = visibleRows(sheet.key);
+  const used = barHeight() + 6 + (rows ? rows.height : 180) + 10;
   return Math.max(300, window.innerHeight - used);
 }
 
@@ -330,13 +393,13 @@ function initSheetDrag() {
 
   // Calendar stays put while the sheet is open (taps still work).
   const blockOutside = (e) => {
-    if (sheet.open && !e.target.closest('#runSheet')) e.preventDefault();
+    if (sheet.open && $('mapView').hidden && !e.target.closest('#runSheet')) e.preventDefault();
   };
   document.addEventListener('touchmove', blockOutside, { passive: false });
   document.addEventListener('wheel', blockOutside, { passive: false });
 
   el.addEventListener('touchstart', (e) => {
-    if (e.touches.length !== 1 || e.target.closest('.map')) { drag = null; return; }
+    if (e.touches.length !== 1) { drag = null; return; }
     drag = { y0: e.touches[0].clientY, h0: el.offsetHeight, active: false, last: [] };
   }, { passive: true });
 
@@ -499,8 +562,11 @@ async function sync() {
 async function init() {
   $('sync').addEventListener('click', sync);
   $('sheetDone').addEventListener('click', closeRunSheet);
+  $('mapDone').addEventListener('click', closeFullMap);
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && sheet.open) closeRunSheet();
+    if (e.key !== 'Escape') return;
+    if (!$('mapView').hidden) closeFullMap();
+    else if (sheet.open) closeRunSheet();
   });
   initSheetDrag();
   try {
