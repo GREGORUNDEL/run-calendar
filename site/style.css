@@ -20,6 +20,8 @@
 
 * { box-sizing: border-box; }
 html, body { margin: 0; background: var(--bg); touch-action: pan-x pan-y; }
+body { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+input, textarea { -webkit-user-select: text; user-select: text; -webkit-touch-callout: default; }
 html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 body { min-height: 100vh; -webkit-font-smoothing: antialiased; }
 button { font: inherit; color: inherit; -webkit-tap-highlight-color: transparent; }
@@ -582,3 +584,17 @@ body .leaflet-container .leaflet-control-attribution a { color: var(--orange); }
 .ev-error { margin: 0 0 4px; font-size: 13px; color: var(--red); }
 .row .spacer { flex: 1; }
 .ghost.danger { color: var(--red); }
+
+/* range selection while dragging */
+.day.sel::after {
+  content: "";
+  position: absolute;
+  top: 9%; bottom: 9%; left: 0; right: 0;
+  z-index: 0;
+  background: rgba(64, 200, 224, .3);
+  border-top: 1.5px solid var(--teal);
+  border-bottom: 1.5px solid var(--teal);
+  pointer-events: none;
+}
+.day.sel.s-start::after { left: 9%; border-left: 1.5px solid var(--teal); border-top-left-radius: 999px; border-bottom-left-radius: 999px; }
+.day.sel.s-end::after { right: 9%; border-right: 1.5px solid var(--teal); border-top-right-radius: 999px; border-bottom-right-radius: 999px; }

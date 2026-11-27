@@ -152,6 +152,8 @@ function renderMonth(year, month, todayIso, planned) {
     const cell = document.createElement(runs.length ? 'button' : 'div');
     cell.className = 'day';
     cell.dataset.date = key;
+    cell.dataset.col = (lead + d - 1) % 7;
+    cell.dataset.last = d === days ? '1' : '';
     if (key === todayIso) cell.classList.add('today');
     if (key > todayIso) cell.classList.add('future');
 
@@ -587,13 +589,13 @@ function closeYears() {
 const EVENTS_WORKFLOW = 'events.yml';
 let editing = null; // event being edited, or null for a new one
 
-function openEventEditor(dayKey, eventId) {
-  const ev = eventId ? state.events.find((e) => e.id === eventId) : (dayKey ? eventOn(dayKey) : null);
+function openEventEditor(dayKey, eventId, endKey) {
+  const ev = eventId ? state.events.find((e) => e.id === eventId) : (dayKey && !endKey ? eventOn(dayKey) : null);
   editing = ev || null;
   $('eventTitle').textContent = ev ? 'Поездка' : 'Новая поездка';
   $('evTitle').value = ev ? ev.title : '';
   $('evStart').value = ev ? ev.start : dayKey;
-  $('evEnd').value = ev ? ev.end : dayKey;
+  $('evEnd').value = ev ? ev.end : (endKey || dayKey);
   $('evDelete').hidden = !ev;
   $('evError').hidden = true;
   openSheet($('eventWrap'));
@@ -679,34 +681,106 @@ async function changeEvent(change) {
   }
 }
 
+/* Long press a day, then drag across days to select a range (like selecting photos in iOS).
+   Releasing opens the trip editor for that range. A long press without dragging on a day
+   inside an existing trip opens that trip instead. */
 function initLongPress() {
   const feed = $('feed');
-  let timer = 0, x0 = 0, y0 = 0, fired = false;
-  const cancel = () => clearTimeout(timer);
+  const sel = { timer: 0, x0: 0, y0: 0, x: 0, y: 0, active: false, fired: false, from: null, to: null, raf: 0 };
+
+  const dayAt = (x, y) => {
+    const el = document.elementFromPoint(x, y);
+    const day = el && el.closest('.day[data-date]');
+    return day && !day.closest('.fading') ? day : null;
+  };
+
+  const paint = () => {
+    document.querySelectorAll('.day.sel').forEach((d) => d.classList.remove('sel', 's-start', 's-end'));
+    if (!sel.from) return;
+    const [a, b] = sel.from <= sel.to ? [sel.from, sel.to] : [sel.to, sel.from];
+    document.querySelectorAll('.day[data-date]').forEach((d) => {
+      const k = d.dataset.date;
+      if (k < a || k > b || d.closest('.fading')) return;
+      d.classList.add('sel');
+      const col = Number(d.dataset.col);
+      if (k === a || col === 0 || k.endsWith('-01')) d.classList.add('s-start');
+      if (k === b || col === 6 || d.dataset.last) d.classList.add('s-end');
+    });
+  };
+
+  const update = () => {
+    const day = dayAt(sel.x, sel.y);
+    if (day && day.dataset.date !== sel.to) {
+      sel.to = day.dataset.date;
+      paint();
+      haptic();
+    }
+  };
+
+  // Scroll the calendar when the finger is held near the top or bottom edge.
+  const autoScroll = () => {
+    if (!sel.active) return;
+    const top = barHeight() + 50, bottom = window.innerHeight - 60;
+    const dy = sel.y < top ? -Math.min(14, (top - sel.y) / 4) : sel.y > bottom ? Math.min(14, (sel.y - bottom) / 4) : 0;
+    if (dy) { window.scrollBy(0, dy); update(); }
+    sel.raf = requestAnimationFrame(autoScroll);
+  };
+
+  const finish = (open) => {
+    clearTimeout(sel.timer);
+    cancelAnimationFrame(sel.raf);
+    if (sel.active && open) {
+      const [a, b] = sel.from <= sel.to ? [sel.from, sel.to] : [sel.to, sel.from];
+      if (a === b) openEventEditor(a);
+      else openEventEditor(a, null, b);
+    }
+    sel.active = false;
+    sel.from = sel.to = null;
+    setTimeout(paint, 250);
+  };
+
   feed.addEventListener('touchstart', (e) => {
     const day = e.target.closest('.day[data-date]');
     if (!day || day.closest('.fading') || e.touches.length !== 1) return;
-    fired = false;
-    x0 = e.touches[0].clientX;
-    y0 = e.touches[0].clientY;
-    timer = setTimeout(() => { fired = true; haptic(); openEventEditor(day.dataset.date); }, 480);
+    sel.fired = false;
+    sel.x0 = sel.x = e.touches[0].clientX;
+    sel.y0 = sel.y = e.touches[0].clientY;
+    clearTimeout(sel.timer);
+    sel.timer = setTimeout(() => {
+      sel.fired = true;
+      sel.active = true;
+      sel.from = sel.to = day.dataset.date;
+      paint();
+      haptic();
+      sel.raf = requestAnimationFrame(autoScroll);
+    }, 420);
   }, { passive: true });
+
   feed.addEventListener('touchmove', (e) => {
     const t = e.touches[0];
-    if (Math.abs(t.clientX - x0) > 8 || Math.abs(t.clientY - y0) > 8) cancel();
-  }, { passive: true });
-  feed.addEventListener('touchend', cancel);
-  feed.addEventListener('touchcancel', cancel);
+    sel.x = t.clientX;
+    sel.y = t.clientY;
+    if (sel.active) {
+      e.preventDefault(); // keep the page still while selecting
+      update();
+    } else if (Math.abs(sel.x - sel.x0) > 8 || Math.abs(sel.y - sel.y0) > 8) {
+      clearTimeout(sel.timer);
+    }
+  }, { passive: false });
+
+  feed.addEventListener('touchend', () => finish(true));
+  feed.addEventListener('touchcancel', () => finish(false));
+
   // After a long press, swallow the click that follows so the run sheet doesn't open too.
   feed.addEventListener('click', (e) => {
-    if (fired) { e.stopPropagation(); e.preventDefault(); fired = false; }
+    if (sel.fired) { e.stopPropagation(); e.preventDefault(); sel.fired = false; }
   }, true);
-  // Desktop: right click
+
+  // Desktop: right click opens the editor for one day.
   feed.addEventListener('contextmenu', (e) => {
-    const day = e.target.closest('.day[data-date]');
-    if (!day || day.closest('.fading')) return;
     e.preventDefault();
-    if (!fired) openEventEditor(day.dataset.date);
+    const day = e.target.closest('.day[data-date]');
+    if (day && !day.closest('.fading') && !sel.fired) openEventEditor(day.dataset.date);
   });
 }
 
