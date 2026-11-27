@@ -539,3 +539,46 @@ body .leaflet-container .leaflet-control-attribution a { color: var(--orange); }
 .ym-dots i.r1 { background: rgba(255, 159, 10, .5); }
 .ym-dots i.r2 { background: rgba(255, 159, 10, .78); }
 .ym-dots i.r3 { background: var(--orange); }
+
+/* ---------- trips */
+:root { --teal: #40c8e0; }
+.day > .trip {
+  position: absolute;
+  top: 9%; bottom: 9%; left: 0; right: 0;
+  z-index: 0;
+  background: rgba(64, 200, 224, .16);
+  border-top: 1px solid rgba(64, 200, 224, .45);
+  border-bottom: 1px solid rgba(64, 200, 224, .45);
+  pointer-events: none;
+}
+.day > .trip.t-start { left: 9%; border-left: 1px solid rgba(64, 200, 224, .45); border-top-left-radius: 999px; border-bottom-left-radius: 999px; }
+.day > .trip.t-end { right: 9%; border-right: 1px solid rgba(64, 200, 224, .45); border-top-right-radius: 999px; border-bottom-right-radius: 999px; }
+.day::before { z-index: 1; }
+.day > .num, .day > .sticker { position: relative; z-index: 2; }
+.day > .count { z-index: 3; }
+.day { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+.ev-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: 15px;
+  line-height: 20px;
+  color: var(--label2);
+  cursor: pointer;
+  text-align: left;
+}
+.ev-line b { color: var(--teal); font-weight: 600; }
+.ev-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--teal); flex: none; }
+
+/* event editor */
+.field { display: block; margin-bottom: 12px; }
+.field span { display: block; font-size: 13px; color: var(--label2); margin-bottom: 4px; }
+.dates { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.sheet input[type="date"] { min-height: 46px; -webkit-appearance: none; appearance: none; }
+.ev-error { margin: 0 0 4px; font-size: 13px; color: var(--red); }
+.row .spacer { flex: 1; }
+.ghost.danger { color: var(--red); }

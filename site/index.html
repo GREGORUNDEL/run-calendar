@@ -57,6 +57,28 @@
   </div>
 </div>
 
+<div class="sheet-wrap" id="eventWrap" hidden>
+  <div class="scrim" data-close-event></div>
+  <article class="sheet" role="dialog" aria-modal="true" aria-labelledby="eventTitle">
+    <div class="grabber"></div>
+    <div class="sheet-head"><h2 id="eventTitle">Новая поездка</h2></div>
+    <form id="eventForm" novalidate>
+      <label class="field"><span>Название</span><input id="evTitle" maxlength="40" placeholder="Прага" autocomplete="off"></label>
+      <div class="dates">
+        <label class="field"><span>С</span><input id="evStart" type="date"></label>
+        <label class="field"><span>По</span><input id="evEnd" type="date"></label>
+      </div>
+      <p class="ev-error" id="evError" role="alert" hidden></p>
+      <div class="row">
+        <button type="button" class="ghost danger" id="evDelete" hidden>Удалить</button>
+        <span class="spacer"></span>
+        <button type="button" class="ghost" data-close-event>Отмена</button>
+        <button type="submit" class="primary">Сохранить</button>
+      </div>
+    </form>
+  </article>
+</div>
+
 <div class="sheet-wrap" id="tokenWrap" hidden>
   <div class="scrim" data-close-token></div>
   <article class="sheet" role="dialog" aria-modal="true" aria-labelledby="tokenTitle">

@@ -9,7 +9,7 @@ const MONTHS = ['Январь', 'Февраль', 'Март', 'Апрель', '�
 const MONTHS_GEN = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
 
 const $ = (id) => document.getElementById(id);
-const state = { runs: [], byDate: new Map(), updated: null, fresh: new Set() };
+const state = { runs: [], byDate: new Map(), updated: null, fresh: new Set(), events: [] };
 
 /* ------------------------------------------------------------ storage */
 const store = {
@@ -75,6 +75,28 @@ async function loadData() {
     state.byDate.get(r.date).push(r);
   }
   for (const list of state.byDate.values()) list.sort((a, b) => a.start.localeCompare(b.start));
+  await loadEvents();
+}
+
+async function loadEvents() {
+  try {
+    const res = await fetch(`data/events.json?t=${Date.now()}`, { cache: 'no-store' });
+    state.events = res.ok ? ((await res.json()).events || []) : [];
+  } catch {
+    state.events = [];
+  }
+}
+
+function eventOn(key) {
+  return state.events.find((e) => e.start <= key && key <= e.end) || null;
+}
+
+function fmtRange(a, b) {
+  const [, m1, d1] = a.split('-').map(Number);
+  const [, m2, d2] = b.split('-').map(Number);
+  if (a === b) return `${d1} ${MONTHS_GEN[m1 - 1]}`;
+  if (m1 === m2) return `${d1}–${d2} ${MONTHS_GEN[m1 - 1]}`;
+  return `${d1} ${MONTHS_GEN[m1 - 1]} – ${d2} ${MONTHS_GEN[m2 - 1]}`;
 }
 
 /* ------------------------------------------------------------ render */
@@ -129,6 +151,7 @@ function renderMonth(year, month, todayIso, planned) {
     const runs = state.byDate.get(key) || [];
     const cell = document.createElement(runs.length ? 'button' : 'div');
     cell.className = 'day';
+    cell.dataset.date = key;
     if (key === todayIso) cell.classList.add('today');
     if (key > todayIso) cell.classList.add('future');
 
@@ -152,8 +175,16 @@ function renderMonth(year, month, todayIso, planned) {
       if (runs.some((r) => state.fresh.has(r.id))) sticker.classList.add('pressed');
       cell.appendChild(sticker);
       if (runs.length > 1) cell.insertAdjacentHTML('beforeend', `<span class="count">${runs.length}</span>`);
-      cell.dataset.date = key;
       cell.addEventListener('click', () => openDay(key));
+    }
+    const trip = eventOn(key);
+    if (trip) {
+      const col = (lead + d - 1) % 7;
+      const cls = ['trip'];
+      if (key === trip.start || col === 0 || d === 1) cls.push('t-start');
+      if (key === trip.end || col === 6 || d === days) cls.push('t-end');
+      cell.insertAdjacentHTML('afterbegin', `<span class="${cls.join(' ')}" aria-hidden="true"></span>`);
+      cell.classList.add('in-trip');
     }
     grid.appendChild(cell);
   }
@@ -163,7 +194,11 @@ function renderMonth(year, month, todayIso, planned) {
   const summary = count
     ? `${count} ${plural(count, 'пробежка', 'пробежки', 'пробежек')}, ${kmTotal(meters)} км, ${hoursText(seconds)}`
     : isFuture ? '' : 'Без пробежек';
-  section.innerHTML = `<div class="month-head"><h2>${MONTHS[month]}${yearSuffix}</h2>${summary ? `<p>${summary}</p>` : ''}</div>`;
+  const mFirst = iso(year, month, 1), mLast = iso(year, month, days);
+  const trips = state.events.filter((e) => e.start <= mLast && e.end >= mFirst);
+  const tripLines = trips.map((e) => `<button class="ev-line" data-id="${escapeHTML(e.id)}"><span class="ev-dot"></span><span><b>${escapeHTML(e.title)}</b>, ${fmtRange(e.start, e.end)}</span></button>`).join('');
+  section.innerHTML = `<div class="month-head"><h2>${MONTHS[month]}${yearSuffix}</h2>${summary ? `<p>${summary}</p>` : ''}${tripLines}</div>`;
+  section.querySelectorAll('.ev-line').forEach((b) => b.addEventListener('click', () => openEventEditor(null, b.dataset.id)));
   section.appendChild(grid);
   return section;
 }
@@ -199,7 +234,7 @@ function scrollToMonth(key, smooth) {
   window.scrollTo({ top, behavior: smooth ? 'smooth' : 'auto' });
 }
 
-function render({ scrollTo } = {}) {
+function render({ scrollTo, keep } = {}) {
   const t = new Date();
   const todayIso = iso(t.getFullYear(), t.getMonth(), t.getDate());
   const feed = $('feed');
@@ -212,7 +247,8 @@ function render({ scrollTo } = {}) {
   $('total').textContent = totalText();
   $('countAll').textContent = state.runs.length || '';
   state.fresh.clear();
-  scrollToMonth(scrollTo || monthKey(t.getFullYear(), t.getMonth()), false);
+  if (keep != null) window.scrollTo(0, keep);
+  else scrollToMonth(scrollTo || monthKey(t.getFullYear(), t.getMonth()), false);
 }
 
 /* ------------------------------------------------------------ day sheet */
@@ -547,6 +583,133 @@ function closeYears() {
   $('yearView').hidden = true;
 }
 
+/* ------------------------------------------------------------ trips (events) */
+const EVENTS_WORKFLOW = 'events.yml';
+let editing = null; // event being edited, or null for a new one
+
+function openEventEditor(dayKey, eventId) {
+  const ev = eventId ? state.events.find((e) => e.id === eventId) : (dayKey ? eventOn(dayKey) : null);
+  editing = ev || null;
+  $('eventTitle').textContent = ev ? 'Поездка' : 'Новая поездка';
+  $('evTitle').value = ev ? ev.title : '';
+  $('evStart').value = ev ? ev.start : dayKey;
+  $('evEnd').value = ev ? ev.end : dayKey;
+  $('evDelete').hidden = !ev;
+  $('evError').hidden = true;
+  openSheet($('eventWrap'));
+}
+
+function closeEventEditor() {
+  closeSheet($('eventWrap'));
+  editing = null;
+}
+
+function eventError(msg) {
+  $('evError').textContent = msg;
+  $('evError').hidden = false;
+}
+
+async function submitEvent(e) {
+  e.preventDefault();
+  const title = $('evTitle').value.trim();
+  let start = $('evStart').value, end = $('evEnd').value || start;
+  if (!title) return eventError('Введи название поездки.');
+  if (!start) return eventError('Выбери первый день.');
+  if (end < start) [start, end] = [end, start];
+  const id = editing ? editing.id : Math.random().toString(16).slice(2, 12);
+  const action = editing ? 'update' : 'add';
+  closeEventEditor();
+  await changeEvent({ action, id, title, start, end });
+}
+
+async function deleteEvent() {
+  if (!editing) return;
+  const { id } = editing;
+  closeEventEditor();
+  await changeEvent({ action: 'delete', id, title: '', start: '', end: '' });
+}
+
+async function changeEvent(change) {
+  let token = store.get(TOKEN_KEY);
+  if (!token) {
+    token = await askToken();
+    if (!token) return;
+    store.set(TOKEN_KEY, token);
+  }
+  haptic();
+  const before = state.events.slice();
+  const others = state.events.filter((e) => e.id !== change.id);
+  state.events = change.action === 'delete'
+    ? others
+    : [...others, { id: change.id, title: change.title, start: change.start, end: change.end }].sort((a, b) => a.start.localeCompare(b.start));
+  render({ keep: window.scrollY });
+
+  setBusy(true);
+  const startedAt = Date.now() - 20000;
+  const expected = JSON.stringify(state.events.map((e) => [e.id, e.title, e.start, e.end]));
+  try {
+    const res = await gh(`/repos/${REPO}/actions/workflows/${EVENTS_WORKFLOW}/dispatches`, token, {
+      method: 'POST',
+      body: JSON.stringify({ ref: 'main', inputs: change }),
+    });
+    if (res.status === 401 || res.status === 403 || res.status === 404) {
+      store.del(TOKEN_KEY);
+      throw new Error('GitHub не принял токен.');
+    }
+    if (!res.ok) throw new Error(`GitHub ответил ошибкой ${res.status}.`);
+    const run = await waitForRun(EVENTS_WORKFLOW, startedAt, token);
+    if (run && run.status === 'completed' && run.conclusion !== 'success') {
+      throw new Error(`Поездку не удалось сохранить. <a href="${run.html_url}" target="_blank" rel="noopener">Подробности на GitHub</a>`);
+    }
+    // Wait until the published file matches (the CDN can lag a few seconds).
+    const local = state.events;
+    for (let i = 0; i < 8; i++) {
+      await loadEvents();
+      if (JSON.stringify(state.events.map((e) => [e.id, e.title, e.start, e.end])) === expected) break;
+      state.events = local;
+      await sleep(4000);
+    }
+  } catch (err) {
+    state.events = before;
+    render({ keep: window.scrollY });
+    setStatus(err.message || 'Поездку не удалось сохранить.', 'error');
+    setTimeout(() => setStatus(''), 8000);
+  } finally {
+    setBusy(false);
+  }
+}
+
+function initLongPress() {
+  const feed = $('feed');
+  let timer = 0, x0 = 0, y0 = 0, fired = false;
+  const cancel = () => clearTimeout(timer);
+  feed.addEventListener('touchstart', (e) => {
+    const day = e.target.closest('.day[data-date]');
+    if (!day || day.closest('.fading') || e.touches.length !== 1) return;
+    fired = false;
+    x0 = e.touches[0].clientX;
+    y0 = e.touches[0].clientY;
+    timer = setTimeout(() => { fired = true; haptic(); openEventEditor(day.dataset.date); }, 480);
+  }, { passive: true });
+  feed.addEventListener('touchmove', (e) => {
+    const t = e.touches[0];
+    if (Math.abs(t.clientX - x0) > 8 || Math.abs(t.clientY - y0) > 8) cancel();
+  }, { passive: true });
+  feed.addEventListener('touchend', cancel);
+  feed.addEventListener('touchcancel', cancel);
+  // After a long press, swallow the click that follows so the run sheet doesn't open too.
+  feed.addEventListener('click', (e) => {
+    if (fired) { e.stopPropagation(); e.preventDefault(); fired = false; }
+  }, true);
+  // Desktop: right click
+  feed.addEventListener('contextmenu', (e) => {
+    const day = e.target.closest('.day[data-date]');
+    if (!day || day.closest('.fading')) return;
+    e.preventDefault();
+    if (!fired) openEventEditor(day.dataset.date);
+  });
+}
+
 /* ------------------------------------------------------------ sync */
 function setStatus(text, kind) {
   const el = $('status');
@@ -558,8 +721,10 @@ function setStatus(text, kind) {
   el.className = 'status' + (kind ? ' ' + kind : '');
   el.innerHTML = text;
 }
+let busyCount = 0;
 function setBusy(busy) {
-  $('syncSpin').hidden = !busy;
+  busyCount = Math.max(0, busyCount + (busy ? 1 : -1));
+  $('syncSpin').hidden = busyCount === 0;
 }
 
 function askToken() {
@@ -614,6 +779,20 @@ function haptic() {
     }
     hapticLabel.click();
   } catch { /* no haptics */ }
+}
+
+async function waitForRun(workflow, startedAt, token, minutes = 6) {
+  const deadline = Date.now() + minutes * 60 * 1000;
+  let run = null;
+  while (Date.now() < deadline) {
+    await sleep(4000);
+    const r = await gh(`/repos/${REPO}/actions/workflows/${workflow}/runs?event=workflow_dispatch&per_page=5`, token);
+    if (!r.ok) continue;
+    const list = (await r.json()).workflow_runs || [];
+    run = list.find((x) => Date.parse(x.created_at) >= startedAt) || null;
+    if (run && run.status === 'completed') return run;
+  }
+  return run;
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -721,9 +900,15 @@ async function init() {
   $('total').addEventListener('click', openYears);
   $('countAll').addEventListener('click', openYears);
   $('yearDone').addEventListener('click', closeYears);
+  $('eventForm').addEventListener('submit', submitEvent);
+  $('evDelete').addEventListener('click', deleteEvent);
+  document.querySelectorAll('[data-close-event]').forEach((el) => el.addEventListener('click', closeEventEditor));
+  $('evTitle').addEventListener('input', () => { $('evError').hidden = true; });
+  initLongPress();
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
-    if (!$('yearView').hidden) closeYears();
+    if (!$('eventWrap').hidden) closeEventEditor();
+    else if (!$('yearView').hidden) closeYears();
     else if (!$('mapView').hidden) closeFullMap();
     else if (sheet.open) closeRunSheet();
   });
