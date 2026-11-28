@@ -238,6 +238,7 @@ function scrollToMonth(key, smooth) {
 
 function render({ scrollTo, keep } = {}) {
   const t = new Date();
+  renderedDay = iso(t.getFullYear(), t.getMonth(), t.getDate());
   const todayIso = iso(t.getFullYear(), t.getMonth(), t.getDate());
   const feed = $('feed');
   feed.innerHTML = '';
@@ -794,6 +795,10 @@ function setStatus(text, kind) {
   }
   el.className = 'status' + (kind ? ' ' + kind : '');
   el.innerHTML = text;
+  clearTimeout(setStatus.timer);
+  if (kind === 'error' && !el.querySelector('#connectLink')) {
+    setStatus.timer = setTimeout(() => setStatus(''), 10000);
+  }
 }
 let busyCount = 0;
 function setBusy(busy) {
@@ -1010,7 +1015,38 @@ async function init() {
   };
   window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(relayout, 150); });
   window.addEventListener('orientationchange', () => setTimeout(relayout, 300));
-  document.addEventListener('visibilitychange', maybeAutoSync);
+  document.addEventListener('visibilitychange', () => { onResume(); maybeAutoSync(); });
+  window.addEventListener('pageshow', (e) => { if (e.persisted) onResume(); });
+  setInterval(checkDayChange, 60 * 1000);
+
+  // If the header changes height (status line appears/disappears), keep the run sheet fitted.
+  if (window.ResizeObserver) {
+    new ResizeObserver(() => { if (sheet.open) setSheetHeight(sheetHeight(), false); }).observe(document.querySelector('.bar'));
+  }
+}
+
+/* The app can stay open in the background for days: refresh "today" and the plan when the date changes. */
+let renderedDay = todayKey();
+function todayKey() {
+  const t = new Date();
+  return iso(t.getFullYear(), t.getMonth(), t.getDate());
+}
+function checkDayChange() {
+  if (todayKey() === renderedDay || document.visibilityState !== 'visible') return;
+  const openKey = sheet.open ? sheet.key : null;
+  render({ keep: window.scrollY });
+  if (openKey) openDay(openKey, true);
+}
+function onResume() {
+  if (document.visibilityState !== 'visible') return;
+  checkDayChange();
+  // iOS sometimes restores a home-screen app with stale layout: force a fresh layout pass.
+  const bar = document.querySelector('.bar');
+  bar.style.transform = 'translateZ(0)';
+  requestAnimationFrame(() => {
+    bar.style.transform = '';
+    if (sheet.open) setSheetHeight(sheetHeight(), false);
+  });
 }
 
 init();

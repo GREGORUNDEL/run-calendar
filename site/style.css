@@ -212,7 +212,7 @@ button:focus-visible, input:focus-visible {
   display: grid;
   place-items: center;
 }
-.day.today .sticker { box-shadow: 0 0 0 2px var(--bg), 0 0 0 3.5px var(--orange); }
+.day.today .sticker { box-shadow: 0 0 0 2px var(--bg), 0 0 0 3.5px var(--label); }
 .day.selected .sticker { box-shadow: 0 0 0 2px var(--bg), 0 0 0 3.5px var(--label); }
 .day.has-run:active .sticker { filter: brightness(0.85); }
 .sticker svg { width: 100%; height: 100%; display: block; }
@@ -584,6 +584,12 @@ body .leaflet-container .leaflet-control-attribution a { color: var(--orange); }
 .ev-error { margin: 0 0 4px; font-size: 13px; color: var(--red); }
 .row .spacer { flex: 1; }
 .ghost.danger { color: var(--red); }
+
+/* today that is a planned run day: planned orange fill with a white outline */
+.day.today.planned:not(.has-run)::before {
+  background: rgba(255, 159, 10, 0.14);
+  box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, 0.75);
+}
 
 /* range selection while dragging */
 .day.sel::after {
