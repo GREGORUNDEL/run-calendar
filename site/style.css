@@ -608,13 +608,16 @@ body .leaflet-container .leaflet-control-attribution a { color: var(--orange); }
 /* ---------- sleep and recovery */
 .day.tappable { cursor: pointer; }
 .hrv-dot {
+  /* badge on the circle's upper-right edge (45°), like an iOS notification badge */
   position: absolute;
-  bottom: 2%;
-  left: 50%;
-  width: 5px; height: 5px;
-  margin-left: -2.5px;
+  top: 21%;
+  left: 79%;
+  width: 11px; height: 11px;
+  box-sizing: border-box;
+  border: 2.5px solid var(--bg);
+  transform: translate(-50%, -50%);
   border-radius: 50%;
-  z-index: 3;
+  z-index: 4;
 }
 .hrv-dot.off { background: #ffd60a; }
 .hrv-dot.low { background: var(--red); }
