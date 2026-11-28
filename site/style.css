@@ -604,3 +604,40 @@ body .leaflet-container .leaflet-control-attribution a { color: var(--orange); }
 }
 .day.sel.s-start::after { left: 9%; border-left: 1.5px solid var(--teal); border-top-left-radius: 999px; border-bottom-left-radius: 999px; }
 .day.sel.s-end::after { right: 9%; border-right: 1.5px solid var(--teal); border-top-right-radius: 999px; border-bottom-right-radius: 999px; }
+
+/* ---------- sleep and recovery */
+.day.tappable { cursor: pointer; }
+.hrv-dot {
+  position: absolute;
+  bottom: 2%;
+  left: 50%;
+  width: 5px; height: 5px;
+  margin-left: -2.5px;
+  border-radius: 50%;
+  z-index: 3;
+}
+.hrv-dot.off { background: #ffd60a; }
+.hrv-dot.low { background: var(--red); }
+.well { flex: none; }
+.sleep-big { font-family: var(--rounded); font-size: 28px; font-weight: 700; margin: 0 0 10px; }
+.sleep-score { margin-left: 10px; font-size: 15px; font-weight: 600; color: var(--label2); }
+.sleep-bar { margin-bottom: 8px; }
+.s-deep { background: #5e5ce6; } .s-light { background: #0a84ff; } .s-rem { background: #64d2ff; } .s-awake { background: rgba(235, 235, 245, .45); }
+.sleep-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 0 0 14px; font-size: 13px; color: var(--label2); }
+.sleep-legend i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 5px; }
+.hrv-st { display: block; font-family: -apple-system, system-ui, sans-serif; font-size: 12px; font-weight: 600; margin-top: 2px; }
+.hrv-st.ok { color: #30d158; } .hrv-st.off { color: #ffd60a; } .hrv-st.low { color: var(--red); }
+.well-line {
+  flex: none;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0 0 10px;
+  padding: 10px 14px;
+  background: var(--bg3);
+  border-radius: 16px;
+}
+.well-line dt { font-size: 12px; color: var(--label2); }
+.well-line dd { margin: 1px 0 0; font-family: var(--rounded); font-size: 17px; font-weight: 600; }
+.well-line dd small { font-size: 13px; color: var(--label2); font-weight: 500; }
+.well-line .hrv-st { display: inline; margin-left: 4px; font-size: 11px; }

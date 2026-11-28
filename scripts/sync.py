@@ -40,6 +40,7 @@ MAX_PAGES = 200
 INCREMENTAL_OVERLAP_DAYS = 7
 MAX_TRACK_DOWNLOADS = int(os.environ.get("MAX_TRACK_DOWNLOADS", "150"))
 TRIM_METERS = 0            # metres hidden at start and end of every route (0 = full route)
+RUNS_VERSION = 2           # bump when summarize() gains fields: next sync re-reads the full list once
 TRACK_VERSION = 3          # bump to re-download all routes after changing track processing
 SIMPLIFY_METERS = 4        # Douglas-Peucker tolerance
 TIMEOUT = 60
@@ -171,6 +172,8 @@ def summarize(activity: dict) -> dict:
         "maxHr": _num(activity.get("maxHR")),
         "elevGain": _num(activity.get("elevationGain")),
         "calories": _num(activity.get("calories")),
+        "te": _num(activity.get("aerobicTrainingEffect"), 1),
+        "teLabel": activity.get("trainingEffectLabel") or None,
         "track": "pending",  # FIT not processed yet (route + heart rate)
     }
 
@@ -293,6 +296,7 @@ def save_runs(runs: dict[int, dict]) -> None:
     payload = {
         "updated": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "trackVersion": TRACK_VERSION,
+        "runsVersion": RUNS_VERSION,
         "runs": ordered,
     }
     DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -305,7 +309,8 @@ def sync(api_key: str, full: bool) -> None:
         runs = {rid: r for rid, r in runs.items() if r.get("source", "garmin") != "garmin"}
     start_date = None
     garmin_runs = [r for r in runs.values() if r.get("source", "garmin") == "garmin" and r.get("date")]
-    if garmin_runs and not full:
+    runs_version = json.loads(RUNS_FILE.read_text(encoding="utf-8")).get("runsVersion") if RUNS_FILE.exists() else None
+    if garmin_runs and not full and runs_version == RUNS_VERSION:
         newest = max(date.fromisoformat(r["date"]) for r in garmin_runs)
         start_date = (newest - timedelta(days=INCREMENTAL_OVERLAP_DAYS)).isoformat()
 
@@ -366,7 +371,92 @@ def sync(api_key: str, full: bool) -> None:
 
     left = sum(1 for r in runs.values() if r.get("track") == "pending")
     save_runs(runs)
+    try:
+        sync_days(token, runs)
+    except SyncError as exc:  # health data is a bonus; never fail the run sync because of it
+        print(f"Данные о сне не обновлены: {exc}")
     print(f"Новых пробежек: {added}. Маршрутов загружено: {downloads}." + (f" Ещё ждут загрузки: {left}." if left else ""))
+
+
+# --------------------------------------------------------------------------- daily health
+
+DAYS_FILE = DATA_DIR / "days.json"
+DAYS_VERSION = 1
+DAYS_REFRESH = 10      # recent days are re-read every sync (sleep and HRV settle in the morning)
+CHUNK_DAYS = 28        # Garmin limits range requests to about a month
+
+
+def _get_json(token: str, path: str, params: dict | None = None):
+    raw = _request("GET", path, headers={"Accept": "application/json", "Authorization": f"Bearer {token}"}, params=params)
+    return json.loads(raw) if raw.strip() else None
+
+
+def _chunks(start: date, end: date):
+    while start <= end:
+        stop = min(end, start + timedelta(days=CHUNK_DAYS - 1))
+        yield start, stop
+        start = stop + timedelta(days=1)
+
+
+def _sleep_entry(s: dict) -> dict:
+    scores = s.get("sleepScores") or {}
+    return {
+        "sleep": _num(s.get("sleepTimeSeconds")),
+        "deep": _num(s.get("deepSleepSeconds")),
+        "light": _num(s.get("lightSleepSeconds")),
+        "rem": _num(s.get("remSleepSeconds")),
+        "awake": _num(s.get("awakeSleepSeconds")),
+        "score": _num((scores.get("overall") or {}).get("value")),
+        "sleepHr": _num(s.get("avgHeartRate")),
+        "bed": s.get("sleepStartTimestampLocal"),
+        "wake": s.get("sleepEndTimestampLocal"),
+    }
+
+
+def sync_days(token: str, runs: dict) -> None:
+    data = json.loads(DAYS_FILE.read_text(encoding="utf-8")) if DAYS_FILE.exists() else {}
+    days: dict[str, dict] = data.get("days", {}) if data.get("version") == DAYS_VERSION else {}
+    today = date.today()
+    if days:
+        start = today - timedelta(days=DAYS_REFRESH)
+    else:
+        dates = [r["date"] for r in runs.values() if r.get("source", "garmin") == "garmin" and r.get("date")]
+        start = date.fromisoformat(min(dates)) if dates else today - timedelta(days=60)
+
+    for a, b in _chunks(start, today):
+        a_s, b_s = a.isoformat(), b.isoformat()
+        try:
+            for s in _get_json(token, "/sleep-service/sleep/dailySleepSummariesByDate", {"startDate": a_s, "endDate": b_s}) or []:
+                if s.get("calendarDate") and s.get("sleepTimeSeconds"):
+                    days.setdefault(s["calendarDate"], {}).update({k: v for k, v in _sleep_entry(s).items() if v is not None})
+        except SyncError as exc:
+            print(f"Сон {a_s}–{b_s}: {exc}")
+        try:
+            summ = _get_json(token, "/usersummary-service/v2/dailysummaries", {"startDate": a_s, "endDate": b_s}) or {}
+            for d in summ.get("data", []) if isinstance(summ, dict) else []:
+                rhr = (d.get("heartRate") or {}).get("restingValue")
+                if d.get("calendarDate") and rhr:
+                    days.setdefault(d["calendarDate"], {})["rhr"] = int(rhr)
+        except SyncError as exc:
+            print(f"Пульс в покое {a_s}–{b_s}: {exc}")
+        try:
+            hrv = _get_json(token, f"/hrv-service/hrv/daily/{a_s}/{b_s}") or {}
+            for h in hrv.get("hrvSummaries", []) if isinstance(hrv, dict) else []:
+                if h.get("calendarDate") and h.get("lastNightAvg"):
+                    base = h.get("baseline") or {}
+                    days.setdefault(h["calendarDate"], {}).update({
+                        "hrv": int(h["lastNightAvg"]),
+                        "hrvStatus": h.get("status"),
+                        "hrvLow": base.get("balancedLow"),
+                        "hrvHigh": base.get("balancedUpper"),
+                    })
+        except SyncError as exc:
+            print(f"ВСР {a_s}–{b_s}: {exc}")
+        time.sleep(0.3)
+
+    ordered = dict(sorted(days.items()))
+    DAYS_FILE.write_text(json.dumps({"version": DAYS_VERSION, "days": ordered}, ensure_ascii=False, separators=(",", ":")) + "\n", encoding="utf-8")
+    print(f"Дней со сном и пульсом: {len(ordered)}")
 
 
 def main() -> int:

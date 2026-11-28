@@ -9,7 +9,7 @@ const MONTHS = ['Январь', 'Февраль', 'Март', 'Апрель', '�
 const MONTHS_GEN = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
 
 const $ = (id) => document.getElementById(id);
-const state = { runs: [], byDate: new Map(), updated: null, fresh: new Set(), events: [] };
+const state = { runs: [], byDate: new Map(), updated: null, fresh: new Set(), events: [], days: {} };
 
 /* ------------------------------------------------------------ storage */
 const store = {
@@ -75,7 +75,16 @@ async function loadData() {
     state.byDate.get(r.date).push(r);
   }
   for (const list of state.byDate.values()) list.sort((a, b) => a.start.localeCompare(b.start));
-  await loadEvents();
+  await Promise.all([loadEvents(), loadDays()]);
+}
+
+async function loadDays() {
+  try {
+    const res = await fetch(`data/days.json?t=${Date.now()}`, { cache: 'no-store' });
+    state.days = res.ok ? ((await res.json()).days || {}) : {};
+  } catch {
+    state.days = {};
+  }
 }
 
 async function loadEvents() {
@@ -159,6 +168,10 @@ function renderMonth(year, month, todayIso, planned) {
 
     if (!runs.length) {
       cell.innerHTML = `<span class="num">${d}</span>`;
+      if (key <= todayIso) {
+        cell.classList.add('tappable');
+        cell.addEventListener('click', () => openDay(key));
+      }
       if (planned.has(key)) {
         cell.classList.add('planned');
         cell.title = 'Запланированная пробежка';
@@ -179,6 +192,8 @@ function renderMonth(year, month, todayIso, planned) {
       if (runs.length > 1) cell.insertAdjacentHTML('beforeend', `<span class="count">${runs.length}</span>`);
       cell.addEventListener('click', () => openDay(key));
     }
+    const hrvCls = { LOW: 'low', POOR: 'low', UNBALANCED: 'off' }[state.days[key]?.hrvStatus];
+    if (hrvCls) cell.insertAdjacentHTML('beforeend', `<span class="hrv-dot ${hrvCls}" aria-hidden="true"></span>`);
     const trip = eventOn(key);
     if (trip) {
       const col = (lead + d - 1) % 7;
@@ -377,12 +392,69 @@ function zonesHTML(r) {
     <p><b>${easy}%</b> времени в лёгкой зоне, до ${Math.round(MAX_HR * ZONE_PCT[1])} уд/мин</p></div>`;
 }
 
+/* ------------------------------------------------------------ sleep, resting HR, HRV */
+const HRV_STATUS = {
+  BALANCED: ['в норме', 'ok'], UNBALANCED: ['вне нормы', 'off'], LOW: ['низкая', 'low'], POOR: ['очень низкая', 'low'],
+};
+const TE_LABEL = {
+  RECOVERY: 'восстановление', AEROBIC_BASE: 'база', TEMPO: 'темп', LACTATE_THRESHOLD: 'порог',
+  VO2MAX: 'МПК', ANAEROBIC_CAPACITY: 'анаэробная', SPEED: 'скорость', NO_BENEFIT: 'без эффекта',
+};
+function hm(sec) {
+  const m = Math.round(sec / 60);
+  return m >= 60 ? `${Math.floor(m / 60)} ч ${m % 60} мин` : `${m} мин`;
+}
+function hmShort(sec) {
+  const m = Math.round(sec / 60);
+  return `${Math.floor(m / 60)}:${pad(m % 60)}`;
+}
+const clockOf = (ms) => (ms ? new Date(ms).toISOString().slice(11, 16) : '');
+
+function hrvText(w) {
+  if (!w.hrv) return '—';
+  const st = HRV_STATUS[w.hrvStatus];
+  return `${w.hrv}<small> мс</small>${st ? `<span class="hrv-st ${st[1]}">${st[0]}</span>` : ''}`;
+}
+
+function wellnessHTML(key) {
+  const w = state.days[key];
+  if (!w) return '<section class="run well"><p class="map-note">За этот день нет данных о сне и пульсе.</p></section>';
+  const fig = (label, value) => `<div><dt>${label}</dt><dd>${value}</dd></div>`;
+  let sleep = '';
+  if (w.sleep) {
+    const parts = [['deep', 'Глубокий'], ['light', 'Лёгкий'], ['rem', 'REM'], ['awake', 'Без сна']].filter(([k]) => w[k]);
+    const total = parts.reduce((a, [k]) => a + w[k], 0) || 1;
+    sleep = `<h3>Сон</h3>
+      <p class="when">${w.bed ? `${clockOf(w.bed)} – ${clockOf(w.wake)}` : 'Прошлая ночь'}</p>
+      <div class="sleep-big">${hm(w.sleep)}${w.score ? `<span class="sleep-score">оценка ${w.score}</span>` : ''}</div>
+      <div class="zone-bar sleep-bar" aria-hidden="true">${parts.map(([k]) => `<span class="s-${k}" style="flex:${w[k] / total}"></span>`).join('')}</div>
+      <p class="sleep-legend">${parts.map(([k, n]) => `<span><i class="s-${k}"></i>${n} ${hmShort(w[k])}</span>`).join('')}</p>`;
+  }
+  return `<section class="run well">${sleep}
+    <dl class="figures">
+      ${fig('Пульс во сне', w.sleepHr ? `${w.sleepHr}<small> уд/мин</small>` : '—')}
+      ${fig('Пульс в покое', w.rhr ? `${w.rhr}<small> уд/мин</small>` : '—')}
+      ${fig('ВСР за ночь', hrvText(w))}
+    </dl></section>`;
+}
+
+function wellnessLine(key) {
+  const w = state.days[key];
+  if (!w) return '';
+  const item = (label, value) => `<div><dt>${label}</dt><dd>${value}</dd></div>`;
+  return `<dl class="well-line">
+    ${item('Сон', w.sleep ? `${hmShort(w.sleep)}${w.score ? `<small> · ${w.score}</small>` : ''}` : '—')}
+    ${item('Пульс в покое', w.rhr || '—')}
+    ${item('ВСР', hrvText(w))}
+  </dl>`;
+}
+
 function runHTML(r, i) {
   const time = r.start ? r.start.slice(11, 16) : '';
   const fig = (label, value, cls = '') => `<div class="${cls}"><dt>${label}</dt><dd>${value}</dd></div>`;
   return `<section class="run">
     <h3>${escapeHTML(r.name || 'Пробежка')}</h3>
-    <p class="when">Старт в ${time}</p>
+    <p class="when">Старт в ${time}${r.te ? `, аэробный эффект ${String(r.te).replace('.', ',')}${TE_LABEL[r.teLabel] ? ` (${TE_LABEL[r.teLabel]})` : ''}` : ''}</p>
     <dl class="figures">
       ${fig('Дистанция', r.distance ? `${km2(r.distance)}<small> км</small>` : '—', 'accent')}
       ${fig('Время', r.duration ? clock(r.duration) : '—')}
@@ -485,7 +557,7 @@ function openDay(key, silent) {
   markSelected(key);
   $('sheetTitle').textContent = dayTitle(key);
   const body = $('sheetBody');
-  body.innerHTML = runs.map(runHTML).join('');
+  body.innerHTML = runs.length ? wellnessLine(key) + runs.map(runHTML).join('') : wellnessHTML(key);
   body.classList.toggle('multi', runs.length > 1);
   body.scrollTop = 0;
   document.body.style.paddingBottom = `${window.innerHeight}px`; // room to lift any week under the header
@@ -970,7 +1042,7 @@ async function init() {
   document.addEventListener('touchstart', () => {}, { passive: true }); // enables :active on iOS
   document.getElementById('feed').addEventListener('click', (e) => {
     const day = e.target.closest('.day');
-    if (day && !day.classList.contains('has-run') && day.querySelector('.num') && !day.closest('.fading')) haptic();
+    if (day && !day.classList.contains('has-run') && !day.classList.contains('tappable') && day.querySelector('.num') && !day.closest('.fading')) haptic();
   });
   ['gesturestart', 'gesturechange'].forEach((t) => document.addEventListener(t, (e) => e.preventDefault(), { passive: false }));
   document.addEventListener('dblclick', (e) => e.preventDefault(), { passive: false });
